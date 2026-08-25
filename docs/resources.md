@@ -4,3 +4,4 @@
 - https://github.com/valvesoftware/proton -> repo cloned at /Users/kaangiray26/external/Proton
 - https://github.com/apple/game-porting-toolkit -> repo cloned at /Users/kaangiray26/external/game-porting-toolkit
 - https://github.com/apple/metal-cpp -> repo cloned at /Users/kaangiray26/external/metal-cpp
+- https://github.com/KhronosGroup/MoltenVK -> repo cloned at /Users/kaangiray26/external/MoltenVK

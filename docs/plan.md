@@ -55,92 +55,116 @@ Rationale, given what's actually available locally (see `docs/resources.md`):
   files. Lithium must be able to *run a Windows installer inside a prefix*,
   not just launch a pre-installed `.exe`.
 
-## Phase 0 — Environment & toolchain prep
+## Phase 0 — Environment & toolchain prep ✅ done
 
-- [ ] Install missing native build dependencies via Homebrew: `autoconf`,
+- [x] Install missing native build dependencies via Homebrew: `autoconf`,
       `automake`, `libtool`, `pkg-config`, `meson`, `ninja`, `gettext`,
       `freetype`, `sdl2` (already present), `molten-vk`, `vulkan-loader`
       (or `vulkan-sdk`), `gnutls`, `mpg123`, `sane-backends` deps as needed.
-- [ ] Confirm full Xcode (not just Command Line Tools) is installed if wine's
+      Also needed, not originally anticipated: `bison` (macOS's is too old),
+      `mingw-w64` (Wine now requires a PE cross-compiler), and a second,
+      **x86_64 Homebrew prefix at `/usr/local`** (Wine is built x86_64, so
+      it needs x86_64 dylibs; arm64 Homebrew only ships arm64 bottles).
+- [x] Confirm full Xcode (not just Command Line Tools) is installed if wine's
       macOS build requires it; confirm macOS SDK version compatible with
-      current WineHQ master.
-- [ ] Decide and record Wine source baseline: pin a specific WineHQ commit/tag
+      current WineHQ master. (Needed for MoltenVK's `xcodebuild`, not Wine
+      itself.)
+- [x] Decide and record Wine source baseline: pin a specific WineHQ commit/tag
       in `~/external/wine` known to have working macOS Mac-driver + Vulkan
-      (winevulkan) support; avoid building against a moving `master`.
-- [ ] Initialize the Proton submodules actually needed (`dxvk`, `vkd3d-proton`,
+      (winevulkan) support; avoid building against a moving `master`. Built
+      against wine-11.16.
+- [x] Initialize the Proton submodules actually needed (`dxvk`, `vkd3d-proton`,
       `dxvk-nvapi`, `Vulkan-Headers`, `Vulkan-Loader`) — skip Linux/media-only
       ones (`gstreamer`, `ffmpeg`, `FEX`, `openvr`, etc.) until proven needed.
-- [ ] Set up a scratch build directory + a repo layout in `lithium/` for
+- [x] Set up a scratch build directory + a repo layout in `lithium/` for
       build scripts, patches, and the resulting toolchain (e.g.
       `build/`, `patches/`, `scripts/`, `dist/`).
 
-## Phase 1 — Baseline Wine on Apple Silicon
+## Phase 1 — Baseline Wine on Apple Silicon ✅ done
 
-- [ ] Configure and build WineHQ wine as an **x86_64** macOS binary with the
-      Mac driver enabled (`--enable-win64` as appropriate), running under
-      Rosetta 2.
-- [ ] Create a minimal Wine prefix (`WINEPREFIX`) and confirm `wineboot`
-      completes cleanly.
-- [ ] Run a trivial Win32 executable (e.g. `notepad.exe`, a "hello world"
-      PE binary) to validate the Wine + Rosetta 2 + Mac driver path end to end.
-- [ ] Validate windowing (a wine window actually renders on macOS via the Mac
-      driver), keyboard/mouse input, and basic CoreAudio sound output.
+- [x] Configure and build WineHQ wine as an **x86_64** macOS binary with the
+      Mac driver enabled, running under Rosetta 2. (Later rebuilt with
+      `--enable-archs=i386,x86_64` for WoW64 — see Phase 4 note.)
+- [x] Create a minimal Wine prefix (`WINEPREFIX`) and confirm `wineboot`
+      completes cleanly. (First boot is genuinely slow, several minutes,
+      under Rosetta — not a hang, verify via log growth not a single `ps`
+      snapshot.)
+- [x] Run a trivial Win32 executable (`wine cmd`) to validate the Wine +
+      Rosetta 2 + Mac driver path end to end.
+- [x] Validate windowing (`wine notepad` produced a real Mac-driver window,
+      confirmed via `System Events` window enumeration). Keyboard/mouse and
+      audio validated implicitly by the game running; not separately unit
+      tested.
 
-## Phase 2 — Vulkan-on-Metal graphics path
+## Phase 2 — Vulkan-on-Metal graphics path ✅ done
 
-- [ ] Build/install MoltenVK for macOS arm64 and confirm a standalone Vulkan
-      sample (e.g. `vkcube`) renders via Metal.
-- [ ] Build wine's `winevulkan` and confirm Wine can enumerate/use the Vulkan
-      ICD (MoltenVK) from inside a Windows process.
-- [ ] Build DXVK (from `~/external/Proton/dxvk` submodule, pinned) targeting
-      this Vulkan/MoltenVK stack; identify and patch any Linux-only
-      assumptions (may require pulling in known community macOS patches).
-- [ ] Install DXVK's `d3d9/d3d10/d3d11.dll` overrides into the test prefix and
-      validate with a small DirectX 11 sample/benchmark before touching the
-      real game.
-- [ ] Build `vkd3d-proton` (D3D12 -> Vulkan) the same way; validate with a
-      minimal D3D12 sample. (Lower priority than D3D11 — confirm which API
-      Silksong's Unity build actually uses before investing heavily here.)
+- [x] Build/install MoltenVK for macOS arm64. (Validation switched from a
+      standalone `vkcube` to Wine's own `vulkan-1_test.exe`, which confirmed
+      MoltenVK correctly identifies the Apple M4 Pro and creates real
+      VkInstance/VkDevice objects.)
+- [x] Build wine's `winevulkan` and confirm Wine can enumerate/use the Vulkan
+      ICD (MoltenVK) from inside a Windows process. Turned out to need zero
+      shimming — Wine's configure natively detects MoltenVK as a `libvulkan`
+      implementation given the right linker flags.
+- [x] Build DXVK targeting this Vulkan/MoltenVK stack; identify and patch
+      Linux-only assumptions. **This was the single biggest real blocker in
+      the project** — see `project_lithium_dxvk_patches` in memory for the
+      full list. DXVK hardcodes several Vulkan features as required that
+      Apple GPUs permanently lack (`geometryShader`, `shaderCullDistance`)
+      or that MoltenVK doesn't implement (`VK_EXT_depth_clip_enable`);
+      relaxed those to optional in `dxvk_device_info.cpp`.
+- [x] Install DXVK's `d3d9/d3d10/d3d11.dll` overrides into the test prefix and
+      validate with `d3d11_test.exe` before touching the real game.
+- [ ] Build `vkd3d-proton` (D3D12 -> Vulkan). **Not done** — Silksong is
+      D3D11 (Unity), didn't need it. Revisit only when a D3D12 title shows up.
 
-## Phase 3 — Lithium tooling (the actual "compat tool")
+## Phase 3 — Lithium tooling (the actual "compat tool") ✅ MVP done
 
 - [ ] Design Lithium's on-disk layout: bundled Wine build, DXVK/vkd3d-proton
       DLLs, default prefix template — modeled on Proton's `dist/` tree and
-      `default_pfx.py`, adapted for macOS paths.
-- [ ] Write a `lithium` CLI (shell or Python, matching Proton's `proton`
-      script style) supporting at minimum:
-      - [ ] `lithium prefix create <name>`
-      - [ ] `lithium run <prefix> <exe> [args...]` (sets `WINEPREFIX`, DLL
-            overrides, env vars, launches via Rosetta-backed wine)
-      - [ ] `lithium install <prefix> <installer.exe>` (for running Windows
-            installers, e.g. the Silksong InnoSetup installer)
-- [ ] Decide MVP distribution shape: standalone CLI/launcher first (since the
-      test game is an offline installer, not a Steam depot); Steam
-      `compatibilitytool.vdf` integration is a stretch goal, not required
-      for MVP.
-- [ ] Basic logging/diagnostics command (`lithium doctor`) to dump Wine/DXVK/
-      MoltenVK versions and catch missing dependencies early.
+      `default_pfx.py`, adapted for macOS paths. **Skipped for the MVP** —
+      `scripts/lithium` points straight at the dev build trees under
+      `build/wine` and `build/dxvk` rather than a packaged `dist/`. Revisit
+      before this goes beyond a single dev machine.
+- [x] Write a `lithium` CLI (`scripts/lithium`) supporting:
+      - [x] `lithium prefix-create <name>`
+      - [x] `lithium run <name> <exe> [args...]`
+      - [x] `lithium install <name> <installer>` (alias for `run` — see
+            Phase 4 note on why installers need special-casing anyway)
+      - [x] `lithium prefix-kill <name>` (clean session shutdown; not
+            originally planned but needed once we learned killing
+            wineserver mid-hang corrupts its lock state)
+- [x] Decide MVP distribution shape: standalone CLI, no Steam integration.
+- [x] `lithium doctor` — dumps Wine/DXVK/MoltenVK paths and checks they exist.
 
-## Phase 4 — Get Hollow Knight: Silksong installed and running
+## Phase 4 — Get Hollow Knight: Silksong installed and running ✅ done
 
-- [ ] Create a dedicated Lithium prefix for Silksong.
-- [ ] Run the two-part installer (`setup_...exe`, using the co-located `.bin`
-      part) inside the prefix via `lithium install`; verify it completes and
-      produces installed game files.
-- [ ] Launch the installed game executable via `lithium run`.
-- [ ] Debug the graphics path first (Unity/DirectX renderer init, resolution/
-      fullscreen handling, Metal frame presentation via MoltenVK).
-- [ ] Debug input: keyboard/mouse first, then gamepad (wine's mac
-      joystick/HID driver vs. macOS Game Controller framework) since
-      Silksong is primarily controller-driven.
-- [ ] Debug audio (CoreAudio via wine) and any video/cutscene codec needs
-      (Unity often uses standard codecs; only pull in GStreamer/ffmpeg from
-      Proton if something actually fails).
-- [ ] Iterate on DLL overrides / wine registry tweaks / environment variables
-      until the game reaches the main menu, then reaches gameplay, with
-      stable frame pacing.
+- [x] Create a dedicated Lithium prefix for Silksong.
+- [x] Run the offline installer inside the prefix — **but not via
+      `lithium install` in the end.** The InnoSetup installer stub is
+      32-bit, which needs Wine's WoW64 mode (`--enable-archs=i386,x86_64`,
+      rebuilt from the win64-only Phase 1 build). Under WoW64-on-Rosetta,
+      the installer's extraction step reliably **hangs in a real Wine bug**
+      — a pure userspace spin with zero wineserver calls, most likely in
+      Wine's "fast sync" futex-style wait path. Never found a fix or an env
+      var to disable it. **Workaround**: `brew install innoextract` and
+      extract the installer directly (`innoextract --gog -d <dir>
+      setup_....exe`) — no Windows code executes at all, so the bug never
+      triggers. The actual game payload turned out to be 64-bit-only
+      (`StandaloneWindows64` paths, typical for modern Unity titles), so it
+      needs no WoW64 at all once extracted. Full writeup:
+      `project_lithium_wow64_installer_bug` in memory.
+- [x] Launch the installed game executable via `lithium run`.
+- [x] Debug the graphics path — worked after the Phase 2 DXVK patches, no
+      Silksong-specific graphics issues hit.
+- [ ] Debug input beyond basic keyboard/mouse (gamepad specifically) —
+      **not yet verified**, game was only briefly played.
+- [ ] Debug audio / video codec needs — **not yet verified**, no issues
+      *reported* so far but not specifically tested.
+- [x] Reached gameplay (cutscenes + playable) with the user confirming they
+      could play. Frame pacing/perf not rigorously measured.
 
-## Phase 5 — Stabilization & polish
+## Phase 5 — Stabilization & polish (next up)
 
 - [ ] Shader cache persistence across runs (DXVK state cache) to avoid
       re-compiling shaders every launch.
@@ -162,13 +186,27 @@ Rationale, given what's actually available locally (see `docs/resources.md`):
       `metal-cpp` for a future custom-Metal graphics backend, as a
       longer-term alternative to the DXVK+MoltenVK path.
 
-## Open risks to flag before implementation starts
+## Risks — confirmed, and new ones found along the way
 
-- DXVK and vkd3d-proton are developed and tested against Linux; macOS
-  portability may require nontrivial patching (no epoll, different threading/
-  memory primitives, etc.). This is the single biggest technical unknown.
-- MoltenVK's Vulkan feature/extension coverage is not 1:1 with Linux
-  Vulkan drivers; some DXVK features may be unavailable or behave
-  differently.
-- Wine's macOS Mac driver and winevulkan maturity should be spot-checked
-  against the current WineHQ master before committing to a baseline commit.
+Original risks, both confirmed true in practice:
+
+- DXVK is developed and tested against Linux; macOS portability **did**
+  require nontrivial patching — confirmed, see Phase 2 and
+  `project_lithium_dxvk_patches` in memory. vkd3d-proton hasn't been
+  attempted yet, so still unconfirmed whether it needs similar patching.
+- MoltenVK's Vulkan feature/extension coverage is not 1:1 with Linux Vulkan
+  drivers — confirmed; several DXVK-required features
+  (`geometryShader`, `shaderCullDistance`, `VK_EXT_depth_clip_enable`) are
+  genuinely, permanently unavailable on Apple GPUs, not just missing in
+  this particular MoltenVK build.
+
+New risk found, not anticipated originally:
+
+- **Wine's WoW64 mode (32-bit guest support) hangs under Rosetta 2** for at
+  least one real-world case (InnoSetup's installer extraction step) — a
+  pure userspace spin, most likely in Wine's futex-style "fast sync" wait
+  path, with no known fix or workaround at the Wine level. Anything that
+  requires running actual 32-bit Windows code (not just 32-bit-stub
+  installers that can be bypassed with a native extractor like
+  `innoextract`) is currently a real risk for future games. Full details:
+  `project_lithium_wow64_installer_bug` in memory.

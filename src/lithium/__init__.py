@@ -7,6 +7,7 @@ below if you relocate things.
 """
 
 import os
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Optional
@@ -22,6 +23,7 @@ LITHIUM_ROOT = Path(__file__).resolve().parent.parent.parent
 
 WINE_BUILD_DIR = LITHIUM_ROOT / "build" / "wine"
 WINE_BIN = WINE_BUILD_DIR / "loader" / "wine"
+WINESERVER_BIN = WINE_BUILD_DIR / "server" / "wineserver"
 
 DXVK_BUILD_DIR = LITHIUM_ROOT / "build" / "dxvk" / "src"
 # (subdir, dllname) pairs, copied into the prefix's system32 on prefix-create
@@ -91,6 +93,23 @@ def lithium_wine_exec(prefix_dir: Path, *args: str, extra_dll_overrides: Optiona
     return proc.returncode
 
 
+def lithium_winetricks_exec(prefix_dir: Path, *verbs: str) -> int:
+    """Run winetricks against a prefix, pointed at our own Wine build."""
+    require_wine_build()
+
+    env = os.environ.copy()
+    env["PATH"] = f"{EXTRA_PATH}:{env.get('PATH', '')}"
+    env["WINEPREFIX"] = str(prefix_dir)
+    env["WINE"] = str(WINE_BIN)
+    env["WINESERVER"] = str(WINESERVER_BIN)
+    env["DYLD_FALLBACK_LIBRARY_PATH"] = DYLD_FALLBACK_LIBRARY_PATH_VALUE
+    env["GST_PLUGIN_PATH"] = GST_PLUGIN_PATH_VALUE
+    env["WINEDLLOVERRIDES"] = WINEDLLOVERRIDES_VALUE
+
+    proc = subprocess.run(["arch", "-x86_64", "winetricks", *verbs], env=env)
+    return proc.returncode
+
+
 @app.command()
 def doctor() -> None:
     """Check that the toolchain/build is in place."""
@@ -119,6 +138,12 @@ def doctor() -> None:
     else:
         typer.echo(f"MoltenVK dylib:       MISSING ({moltenvk_dylib})")
         ok = False
+
+    winetricks_bin = shutil.which("winetricks")
+    if winetricks_bin:
+        typer.echo(f"winetricks:           OK ({winetricks_bin})")
+    else:
+        typer.echo("winetricks:           MISSING (optional -- `brew install winetricks` for the 'winetricks' command)")
 
     if ok:
         typer.echo("Status: ready")
@@ -166,6 +191,21 @@ def prefix_kill(name: str = typer.Argument(..., help="Name of the prefix to shut
         raise typer.Exit(1)
 
     returncode = lithium_wine_exec(prefix_dir, "wineboot", "-k")
+    raise typer.Exit(returncode)
+
+
+@app.command(context_settings={"ignore_unknown_options": True})
+def winetricks(
+    name: str = typer.Argument(..., help="Name of the prefix to install into"),
+    verbs: list[str] = typer.Argument(..., help="Winetricks verbs, e.g. vcrun2019 dotnet48 corefonts"),
+) -> None:
+    """Install common Windows dependencies (VC++ redist, .NET, etc.) via winetricks."""
+    prefix_dir = prefix_path(name)
+    if not prefix_dir.is_dir():
+        typer.echo(f"error: no such prefix: {name} (run 'lithium prefix-create {name}' first)", err=True)
+        raise typer.Exit(1)
+
+    returncode = lithium_winetricks_exec(prefix_dir, *verbs)
     raise typer.Exit(returncode)
 
 

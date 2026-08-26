@@ -71,6 +71,17 @@ hit friction — see `docs/context.md` for known limitations.
   anyway, so the extracted `.exe` runs fine afterward with no WoW64
   involved. Full story: `docs/troubleshooting.md` and `docs/plan.md` Phase 4.
 
+### 2b. Install dependencies the game needs (optional)
+
+Some games need VC++ redistributables, .NET, or similar before they'll run.
+Lithium doesn't reimplement dependency management — it wires up
+[winetricks](https://github.com/Winetricks/winetricks) (`brew install
+winetricks`) against your own Wine build:
+
+```
+uv run lithium winetricks <name> vcrun2019 dotnet48
+```
+
 ### 3. Run the game
 
 ```

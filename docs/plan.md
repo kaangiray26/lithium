@@ -225,8 +225,18 @@ Rationale, given what's actually available locally (see `docs/resources.md`):
 
 ## Phase 6 — Beyond the first game (stretch)
 
-- [ ] Generalize prefix templates / dependency install (equivalent of
+- [x] Generalize prefix templates / dependency install (equivalent of
       winetricks: VC++ redist, .NET, DXVK auto-install) for arbitrary games.
+      Didn't reimplement winetricks -- just wired the real thing in:
+      `lithium winetricks <name> <verb...>` sets `WINE`/`WINESERVER` to
+      point at our own build (winetricks respects these env vars) plus the
+      same `DYLD_FALLBACK_LIBRARY_PATH`/`GST_PLUGIN_PATH`/DLL-override
+      plumbing as `run`/`install`. Verified for real: correctly detected
+      our `wine-11.16` build and WoW64 mode, applied DLL overrides, and
+      downloaded a real ~13MB Microsoft VC++ redistributable
+      (`vcrun2019`) over the network. DXVK auto-install isn't part of this
+      -- that's still handled by `prefix-create` copying the DLLs directly,
+      which was simpler and already worked before this.
 - [ ] Evaluate Steam Play `compatibilitytool.vdf` integration for launching
       Steam-owned games directly through Steam, reusing Proton's manifest
       format.

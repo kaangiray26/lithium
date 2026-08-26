@@ -166,13 +166,18 @@ Rationale, given what's actually available locally (see `docs/resources.md`):
 
 ## Phase 5 — Stabilization & polish (next up)
 
-- [ ] Shader cache persistence across runs (DXVK state cache) to avoid
-      re-compiling shaders every launch.
+- [x] Shader cache persistence across runs (DXVK state cache) to avoid
+      re-compiling shaders every launch. Works automatically, no extra
+      wiring needed — DXVK writes to
+      `<prefix>/drive_c/users/<user>/AppData/Local/dxvk/<hash>.dxvk.bin`,
+      which is part of the prefix and persists on disk across launches.
 - [ ] Performance pass: profile via Metal tools (`gpucapture`/Instruments),
       compare against expected M4 Pro performance for a 2D/2.5D Unity title.
-- [ ] Crash/hang triage workflow (wine debug channels, core dumps, DXVK/wine
-      logs) documented for future games, not just Silksong.
-- [ ] Document known limitations (no D3DMetal, no Apple GPTK private
+      **Not done** — needs an actual play session to profile against.
+- [x] Crash/hang triage workflow (wine debug channels, core dumps, DXVK/wine
+      logs) documented for future games, not just Silksong. See
+      `docs/troubleshooting.md`.
+- [x] Document known limitations (no D3DMetal, no Apple GPTK private
       backend, controller support caveats, etc.) in `docs/context.md`.
 
 ## Phase 6 — Beyond the first game (stretch)

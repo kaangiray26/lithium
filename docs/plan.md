@@ -123,10 +123,10 @@ Rationale, given what's actually available locally (see `docs/resources.md`):
 - [ ] Design Lithium's on-disk layout: bundled Wine build, DXVK/vkd3d-proton
       DLLs, default prefix template — modeled on Proton's `dist/` tree and
       `default_pfx.py`, adapted for macOS paths. **Skipped for the MVP** —
-      `scripts/lithium` points straight at the dev build trees under
-      `build/wine` and `build/dxvk` rather than a packaged `dist/`. Revisit
-      before this goes beyond a single dev machine.
-- [x] Write a `lithium` CLI (`scripts/lithium`) supporting:
+      the CLI points straight at the dev build trees under `build/wine` and
+      `build/dxvk` rather than a packaged `dist/`. Revisit before this goes
+      beyond a single dev machine.
+- [x] Write a `lithium` CLI supporting:
       - [x] `lithium prefix-create <name>`
       - [x] `lithium run <name> <exe> [args...]`
       - [x] `lithium install <name> <installer>` (alias for `run` — see
@@ -134,6 +134,9 @@ Rationale, given what's actually available locally (see `docs/resources.md`):
       - [x] `lithium prefix-kill <name>` (clean session shutdown; not
             originally planned but needed once we learned killing
             wineserver mid-hang corrupts its lock state)
+      Originally a bash script (`scripts/lithium`); ported to a Python
+      package (`src/lithium/`, Typer-based, managed with `uv`) with
+      identical functionality, run via `uv run lithium ...`.
 - [x] Decide MVP distribution shape: standalone CLI, no Steam integration.
 - [x] `lithium doctor` — dumps Wine/DXVK/MoltenVK paths and checks they exist.
 

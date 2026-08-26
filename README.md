@@ -8,6 +8,17 @@ architecture rationale: [`docs/plan.md`](docs/plan.md).
 
 ## Quickstart
 
+The `lithium` CLI is a Python package (`src/lithium/`, built with
+[Typer](https://typer.tiangolo.com/)) managed with [uv](https://docs.astral.sh/uv/).
+Install it once:
+
+```
+uv sync
+```
+
+Then run commands with `uv run lithium ...` (or activate `.venv` and just
+run `lithium ...` directly).
+
 **Prerequisite: Wine, DXVK, and MoltenVK must already be built** under
 `build/wine`, `build/dxvk`, and `~/external/MoltenVK` respectively (see
 `docs/plan.md` Phases 0-2 for how — this isn't a single automated script
@@ -15,7 +26,7 @@ yet, just the manual build steps documented there). Run `lithium doctor`
 to check whether that's already true on your machine:
 
 ```
-./scripts/lithium doctor
+uv run lithium doctor
 ```
 
 If everything shows `OK` and it prints `Status: ready`, you're good to go.
@@ -25,7 +36,7 @@ If everything shows `OK` and it prints `Status: ready`, you're good to go.
 Each game gets its own Wine prefix (an isolated "Windows install"):
 
 ```
-./scripts/lithium prefix-create <name>
+uv run lithium prefix-create <name>
 ```
 
 The **first boot is genuinely slow** (several minutes) under Rosetta 2 —
@@ -44,7 +55,7 @@ hit friction — see `docs/context.md` for known limitations.
   `prefixes/<name>/drive_c/Games/<game>/` and skip to step 3.
 - **If you have a Windows installer**, try:
   ```
-  ./scripts/lithium install <name> /path/to/setup.exe
+  uv run lithium install <name> /path/to/setup.exe
   ```
   **Caveat**: if the installer is a classic **InnoSetup** installer (common
   for GOG-style offline installers) and its stub is **32-bit**, this can
@@ -63,7 +74,7 @@ hit friction — see `docs/context.md` for known limitations.
 ### 3. Run the game
 
 ```
-./scripts/lithium run <name> "prefixes/<name>/drive_c/Games/<game>/Game.exe"
+uv run lithium run <name> "prefixes/<name>/drive_c/Games/<game>/Game.exe"
 ```
 
 This sets up `WINEPREFIX`, the DXVK DLL overrides, the MoltenVK/Homebrew
@@ -76,7 +87,7 @@ Wine keeps a background session (`wineserver` + helper processes) running
 after a game closes, so it's fast to relaunch. To fully tear it down:
 
 ```
-./scripts/lithium prefix-kill <name>
+uv run lithium prefix-kill <name>
 ```
 
 ## Approach
@@ -133,7 +144,7 @@ What it took, in order:
   several Vulkan features as required that Apple GPUs permanently lack
   (`geometryShader`, `shaderCullDistance`) or that MoltenVK doesn't
   implement (`VK_EXT_depth_clip_enable`); relaxed those to optional.
-- **The `lithium` CLI** (`scripts/lithium`) manages prefixes and launches
+- **The `lithium` CLI** (`src/lithium/`, Python/Typer) manages prefixes and launches
   games with the right env (`DYLD_FALLBACK_LIBRARY_PATH` for MoltenVK/
   Homebrew dylibs, DXVK DLL overrides, Rosetta invocation) baked in.
 - **32-bit InnoSetup installers hang** under Wine's WoW64-on-Rosetta combo

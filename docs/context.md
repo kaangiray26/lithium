@@ -29,12 +29,16 @@ details (known limitations, status) that don't belong in a checklist.
   32-bit-heavy workload is a risk. Installers of this type should be
   extracted with `innoextract` (for InnoSetup) rather than run through
   Wine. See `project_lithium_wow64_installer_bug` in memory.
-- **Gamepad input not yet verified.** Silksong was only briefly played
-  with keyboard/mouse-adjacent testing; controller support (wine's mac
-  joystick/HID driver vs. macOS Game Controller framework) has not been
-  specifically tested despite the game being primarily controller-driven.
-- **Audio and video/cutscene codecs not specifically verified.** No issues
-  were *reported*, but this hasn't been deliberately tested either.
+- **Video/cutscene playback is broken for at least one video** — confirmed
+  via play-testing: the game's opening cutscene (played back separately
+  from in-engine Unity rendering, likely via Media Foundation) showed as
+  blank instead of playing. Root cause identified in the log: Wine's
+  `winegstreamer` COM class `{317df618-...}` ("Generic Decodebin Byte
+  Stream Handler") isn't registered, because this Wine build has no
+  GStreamer support (skipped in Phase 0 as "not proven needed" — now
+  proven needed). Fix: build GStreamer (x86_64) and reconfigure/rebuild
+  Wine with it. Not yet done — gameplay itself is unaffected, so this is
+  cosmetic/incomplete rather than blocking.
 - **No packaged `dist/` yet.** `scripts/lithium` points directly at the dev
   build trees under `build/wine` and `build/dxvk`, not a relocatable,
   packaged runtime. Fine for single-machine development, not yet suitable
@@ -43,9 +47,25 @@ details (known limitations, status) that don't belong in a checklist.
   step (winetricks equivalent: VC++ redist, .NET, etc.) beyond DXVK's own
   DLLs. A second, different game will likely need this.
 
+## Confirmed working (play-tested)
+
+- **Audio** — sound effects and music play correctly.
+- **Controller input, including vibration** — worked out of the box (menu
+  navigation and in-game control), despite Wine logging a couple of
+  unimplemented XInput/Windows.Gaming.Input stubs
+  (`xinput:pdo_pnp code 0xc`, `controller_get_IsWireless`) during
+  enumeration — those specific stubs don't block real input or rumble.
+- **Core Unity/DXVK rendering** — main menu, in-engine cutscenes, and
+  gameplay all render correctly with no reported visual issues.
+- **Save and clean quit via the in-game menu** — process exits cleanly
+  (`Destroyed VkDevice ...` in the log, no crash handler spawned).
+
 ## Status snapshot
 
 Hollow Knight: Silksong installs (via `innoextract`, not the bundled
-installer) and runs — confirmed playable (cutscenes + gameplay) on the dev
-machine (Mac mini, Apple M4 Pro, macOS 15.7.7). See `docs/plan.md` Phase 4
-for the full story and `README.md` for the milestone summary.
+installer) and is fully playable — play-tested through the opening menu,
+a new game, and into real gameplay, then saved and quit cleanly — on the
+dev machine (Mac mini, Apple M4 Pro, macOS 15.7.7). The one confirmed gap
+is the missing pre-rendered opening cutscene (see the GStreamer limitation
+above); everything else tested clean. See `docs/plan.md` Phase 4 for the
+full story and `README.md` for the milestone summary.

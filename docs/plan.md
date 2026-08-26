@@ -157,10 +157,18 @@ Rationale, given what's actually available locally (see `docs/resources.md`):
 - [x] Launch the installed game executable via `lithium run`.
 - [x] Debug the graphics path — worked after the Phase 2 DXVK patches, no
       Silksong-specific graphics issues hit.
-- [ ] Debug input beyond basic keyboard/mouse (gamepad specifically) —
-      **not yet verified**, game was only briefly played.
-- [ ] Debug audio / video codec needs — **not yet verified**, no issues
-      *reported* so far but not specifically tested.
+- [x] Debug input beyond basic keyboard/mouse (gamepad specifically) —
+      **confirmed working**, including vibration, out of the box. Wine logs
+      a couple of unimplemented XInput/Windows.Gaming.Input stubs during
+      controller enumeration (`xinput:pdo_pnp code 0xc`,
+      `controller_get_IsWireless`) but they don't block real input.
+- [x] Debug audio / video codec needs — audio **confirmed working**. Video:
+      found one real gap — the pre-rendered opening cutscene is blank,
+      caused by Wine's `winegstreamer` COM handler for generic media
+      byte-streams not being registered (this Wine build has no GStreamer
+      support, per the Phase 0 decision to skip it until proven needed —
+      now proven needed). Not yet fixed; gameplay itself is unaffected. See
+      `docs/context.md`.
 - [x] Reached gameplay (cutscenes + playable) with the user confirming they
       could play. Frame pacing/perf not rigorously measured.
 

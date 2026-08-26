@@ -177,24 +177,43 @@ Rationale, given what's actually available locally (see `docs/resources.md`):
 - [x] Build GStreamer (x86_64, via Homebrew's precompiled bottles in the
       second `/usr/local` prefix — also needed keg-only `libffi` for
       `glib`) and reconfigure/rebuild Wine with GStreamer support
-      (`winegstreamer`). **Done, but didn't fully fix the motivating
-      issue**: Silksong's opening cutscene was blank because Wine's
-      generic media byte-stream COM handler wasn't registered — that part
-      is now fixed (the COM class registers correctly). The video still
-      doesn't play, but for a *different*, deeper reason: a genuine Wine
-      bug in `msvproc`'s frame-alignment handling, unrelated to GStreamer
-      itself. Decided not to patch it (native C fix, narrow payoff — see
-      `docs/context.md` for the full technical writeup). GStreamer support
-      itself is real and should help other games' audio/video needs going
-      forward.
+      (`winegstreamer`). **Done, fixed the COM-registration gap, but the
+      cutscene still doesn't play end to end.** Silksong's opening
+      cutscene was blank because Wine's generic media byte-stream COM
+      handler wasn't registered — fixed. Next hit a real Wine regression
+      in `msvproc`'s frame-alignment handling (bisected to commit
+      `0fef7f2ab4f9`, which rewrote `winegstreamer`'s GStreamer-native
+      video processor into a buggy `libswscale`-based one); **rebuilt Wine
+      pinned to the `wine-11.11` tag (predates the regression) and
+      confirmed that bug is fully gone**. But the cutscene is still blank,
+      now blocked by what looks like a genuine platform gap (`VK_KHR_
+      EXTERNAL_MEMORY_WIN32 not supported` — a Windows-only shared-GPU-
+      handle mechanism with no macOS/MoltenVK equivalent), not something
+      a Wine version or setting fixes. Net result: blank cutscene either
+      way, so decided against permanently pinning to the older `wine-11.11`
+      tag for zero actual compatibility gain — see `docs/context.md` for
+      the full writeup and the open question of which Wine baseline to
+      keep going forward. GStreamer support itself is real and should
+      still help other games' audio/video needs.
 - [x] Shader cache persistence across runs (DXVK state cache) to avoid
       re-compiling shaders every launch. Works automatically, no extra
       wiring needed — DXVK writes to
       `<prefix>/drive_c/users/<user>/AppData/Local/dxvk/<hash>.dxvk.bin`,
       which is part of the prefix and persists on disk across launches.
-- [ ] Performance pass: profile via Metal tools (`gpucapture`/Instruments),
+- [x] Performance pass: profile via Metal tools (`gpucapture`/Instruments),
       compare against expected M4 Pro performance for a 2D/2.5D Unity title.
-      **Not done** — needs an actual play session to profile against.
+      `gpucapture`/`gpudebug` aren't available on this OS (macOS 26+ only;
+      this machine runs 15.7.7). Tried `xctrace record --template "Game
+      Performance"`, but that template defaults to a 5-second rolling
+      capture window regardless of `--time-limit`, so it wasn't useful for
+      a real session — used DXVK's built-in HUD instead
+      (`DXVK_HUD=fps,frametimes,gpuload,compiler,version`), which is
+      simpler and gives the numbers directly. **Result: rock-solid 59.9
+      FPS (VSync/FIFO-locked), frame time 15.9-17.5ms (tight, no
+      stuttering), GPU at 65% utilization** — meaningful headroom left on
+      a 2D/2.5D title. No evidence the Rosetta -> Wine -> DXVK -> MoltenVK
+      stack costs noticeable performance for this class of game; the M4
+      Pro isn't being stressed.
 - [x] Crash/hang triage workflow (wine debug channels, core dumps, DXVK/wine
       logs) documented for future games, not just Silksong. See
       `docs/troubleshooting.md`.

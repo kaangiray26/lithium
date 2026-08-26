@@ -60,8 +60,44 @@ details (known limitations, status) that don't belong in a checklist.
   stride-recompute logic downstream of whichever decoder runs, not in the
   decoder's own output. That attempt also triggered a real Metal/GPU
   device-lost crash (frozen black screen) that isn't present otherwise —
-  **do not set `GST_PLUGIN_FEATURE_RANK` for vtdec/vtdec_hw**. Full
-  writeup: `project_lithium_gstreamer_video_bug` in memory.
+  **do not set `GST_PLUGIN_FEATURE_RANK` for vtdec/vtdec_hw**.
+
+  **Update — found and tried a real fix, which worked partially.**
+  Comparing against Proton's own (much older) wine fork locally showed its
+  video processor is a pure GStreamer pipeline with no manual stride code
+  at all; bisecting mainline WineHQ found the exact regression commit
+  (`0fef7f2ab4f9`, "Reimplement using libswscale", landing 110 commits
+  after the `wine-11.11` tag). **Rebuilt Wine pinned to `wine-11.11`
+  instead of current master, and the original alignment bug is completely
+  gone** — no more `aligned to 16 bytes` / COM-registration errors. But the
+  cutscene *still* doesn't play, now blocked by a different, previously
+  -masked issue: `Failed to create shared resource: VK_KHR_EXTERNAL_
+  MEMORY_WIN32 not supported`. This looks like a genuine platform gap
+  (Unity/Media Foundation trying to share the decoded video frame into the
+  D3D11 scene via a Windows-only kernel shared-handle mechanism that has
+  no macOS/MoltenVK equivalent), not something a Wine version or config
+  change can fix. **Net effect: the cutscene is blank either way** — the
+  `wine-11.11` pin fixes the originally-diagnosed bug but doesn't change
+  the user-visible outcome, so there's no concrete compatibility win
+  weighed against losing ~1000 commits of unrelated upstream fixes by
+  staying on the older tag long-term. Full writeup:
+  `project_lithium_gstreamer_video_bug` in memory.
+- **Toggling VSync in-game crashes the renderer.** Confirmed reproducible:
+  changing the VSync setting in Silksong's video options reliably triggers
+  `[mvk-error] VK_ERROR_OUT_OF_DEVICE_MEMORY: Lost VkDevice ...
+  IOGPUCommandBufferCallbackErrorInvalidResource`, followed by repeated
+  `DxvkSubmissionQueue: Command submission failed: VK_ERROR_DEVICE_LOST` —
+  an unrecoverable renderer crash (frozen/black screen, process must be
+  killed). Looks like a real bug in DXVK/MoltenVK's present-mode-switch
+  path (recreating the swapchain with a different present interval at
+  runtime references an invalid/stale Metal resource). The same crash
+  signature was also seen once spontaneously without any settings change,
+  suggesting some swapchain-recreation-adjacent trigger, not exclusively
+  the VSync toggle itself. **Workaround, not yet verified**: DXVK supports
+  pinning the present interval via config (`dxgi.syncInterval` in
+  `dxvk.conf` or `DXVK_CONFIG` env var) so the game's own toggle doesn't
+  cause a live swapchain reconfiguration — worth trying before attempting
+  any real fix. For now: don't toggle VSync in-game.
 - **No packaged `dist/` yet.** `scripts/lithium` points directly at the dev
   build trees under `build/wine` and `build/dxvk`, not a relocatable,
   packaged runtime. Fine for single-machine development, not yet suitable
@@ -82,6 +118,12 @@ details (known limitations, status) that don't belong in a checklist.
   gameplay all render correctly with no reported visual issues.
 - **Save and clean quit via the in-game menu** — process exits cleanly
   (`Destroyed VkDevice ...` in the log, no crash handler spawned).
+- **Performance** — rock-solid 59.9 FPS (VSync/FIFO-locked), frame time
+  15.9-17.5ms (tight, no stuttering), GPU at 65% utilization during actual
+  gameplay (measured via DXVK's HUD, `DXVK_HUD=fps,frametimes,gpuload`).
+  Meaningful headroom left on a 2D/2.5D title — no sign the translation
+  stack (Rosetta -> Wine -> DXVK -> MoltenVK) is costing real performance
+  for this class of game.
 
 ## Status snapshot
 

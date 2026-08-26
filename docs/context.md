@@ -29,16 +29,39 @@ details (known limitations, status) that don't belong in a checklist.
   32-bit-heavy workload is a risk. Installers of this type should be
   extracted with `innoextract` (for InnoSetup) rather than run through
   Wine. See `project_lithium_wow64_installer_bug` in memory.
-- **Video/cutscene playback is broken for at least one video** — confirmed
-  via play-testing: the game's opening cutscene (played back separately
-  from in-engine Unity rendering, likely via Media Foundation) showed as
-  blank instead of playing. Root cause identified in the log: Wine's
-  `winegstreamer` COM class `{317df618-...}` ("Generic Decodebin Byte
-  Stream Handler") isn't registered, because this Wine build has no
-  GStreamer support (skipped in Phase 0 as "not proven needed" — now
-  proven needed). Fix: build GStreamer (x86_64) and reconfigure/rebuild
-  Wine with it. Not yet done — gameplay itself is unaffected, so this is
-  cosmetic/incomplete rather than blocking.
+- **The opening cutscene never plays — root cause is a genuine Wine bug,
+  not a missing dependency (that part is now fixed).** GStreamer support
+  was added to the Wine build (x86_64 GStreamer via the second Homebrew
+  prefix — Homebrew's `gstreamer` formula now bundles base/good/bad/ugly
+  plugins into one package; also needed `libffi`, keg-only, for `glib`),
+  and Wine's `winegstreamer` COM class now registers correctly — the
+  original `{317df618-...}` "class not registered" error is gone. But the
+  video still doesn't play, because of a **separate, deeper bug** in
+  Wine's `msvproc` (Media Foundation video processor, `dlls/msvproc/
+  video_processor.c`): the cutscene's frame width is **1916px** (not
+  1920 — likely a horizontally-cropped/letterboxed encode), which isn't
+  divisible by 16. `video_frame_wrap_buffer()` hard-requires 16-byte
+  alignment for `swscale`'s SSE2 path and does `return -1` when it isn't
+  met (line ~239) — on *every* frame, since the width never changes, so
+  the video is permanently blank rather than glitchy. A correct fix means
+  patching that function to copy into a padded, 16-aligned intermediate
+  buffer before handing off to `swscale` — removing the check outright is
+  not safe, since unaligned data through `swscale`'s SSE2 path can genuinely
+  crash. **Decision: not patched.** Gameplay itself is unaffected and this
+  is one skippable intro video; the fix is real native-code Wine internals
+  work whose cost isn't justified by the payoff here. Revisit if a future
+  game hits the same non-16-aligned-video pattern more centrally to its
+  experience.
+  Also checked (and ruled out) for a config-only workaround: no matching
+  report exists in WineHQ Bugzilla or upstream (confirmed the same bug is
+  still present, unpatched, in current Wine `master`), and forcing
+  GStreamer's hardware VideoToolbox decoder over the software one via
+  `GST_PLUGIN_FEATURE_RANK` doesn't help — the bug is in Wine's own
+  stride-recompute logic downstream of whichever decoder runs, not in the
+  decoder's own output. That attempt also triggered a real Metal/GPU
+  device-lost crash (frozen black screen) that isn't present otherwise —
+  **do not set `GST_PLUGIN_FEATURE_RANK` for vtdec/vtdec_hw**. Full
+  writeup: `project_lithium_gstreamer_video_bug` in memory.
 - **No packaged `dist/` yet.** `scripts/lithium` points directly at the dev
   build trees under `build/wine` and `build/dxvk`, not a relocatable,
   packaged runtime. Fine for single-machine development, not yet suitable

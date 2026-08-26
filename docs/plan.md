@@ -163,17 +163,30 @@ Rationale, given what's actually available locally (see `docs/resources.md`):
       controller enumeration (`xinput:pdo_pnp code 0xc`,
       `controller_get_IsWireless`) but they don't block real input.
 - [x] Debug audio / video codec needs — audio **confirmed working**. Video:
-      found one real gap — the pre-rendered opening cutscene is blank,
-      caused by Wine's `winegstreamer` COM handler for generic media
-      byte-streams not being registered (this Wine build has no GStreamer
-      support, per the Phase 0 decision to skip it until proven needed —
-      now proven needed). Not yet fixed; gameplay itself is unaffected. See
-      `docs/context.md`.
+      the opening cutscene is permanently blank. Initially traced to
+      missing GStreamer support (fixed in Phase 5); after that fix, traced
+      further to a genuine Wine `msvproc` alignment bug unrelated to
+      GStreamer, which was not patched (see `docs/context.md`, decided
+      not worth a native-code fix for one skippable video). Gameplay
+      itself is unaffected either way.
 - [x] Reached gameplay (cutscenes + playable) with the user confirming they
       could play. Frame pacing/perf not rigorously measured.
 
 ## Phase 5 — Stabilization & polish (next up)
 
+- [x] Build GStreamer (x86_64, via Homebrew's precompiled bottles in the
+      second `/usr/local` prefix — also needed keg-only `libffi` for
+      `glib`) and reconfigure/rebuild Wine with GStreamer support
+      (`winegstreamer`). **Done, but didn't fully fix the motivating
+      issue**: Silksong's opening cutscene was blank because Wine's
+      generic media byte-stream COM handler wasn't registered — that part
+      is now fixed (the COM class registers correctly). The video still
+      doesn't play, but for a *different*, deeper reason: a genuine Wine
+      bug in `msvproc`'s frame-alignment handling, unrelated to GStreamer
+      itself. Decided not to patch it (native C fix, narrow payoff — see
+      `docs/context.md` for the full technical writeup). GStreamer support
+      itself is real and should help other games' audio/video needs going
+      forward.
 - [x] Shader cache persistence across runs (DXVK state cache) to avoid
       re-compiling shaders every launch. Works automatically, no extra
       wiring needed — DXVK writes to

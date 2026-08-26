@@ -40,6 +40,11 @@ DYLD_FALLBACK_LIBRARY_PATH_VALUE="/usr/local/lib:/usr/local/opt/freetype/lib:/us
 # Use DXVK's native DLLs instead of Wine's built-in Direct3D implementations.
 WINEDLLOVERRIDES_VALUE="d3d8,d3d9,d3d10core,d3d11,dxgi=n"
 
+# winegstreamer (video/audio codec support) needs the actual GStreamer
+# plugins findable at runtime, not just its shared libs (already covered
+# by DYLD_FALLBACK_LIBRARY_PATH_VALUE above).
+GST_PLUGIN_PATH_VALUE="/usr/local/lib/gstreamer-1.0"
+
 usage() {
   cat <<'EOF'
 Usage: lithium <command> [args...]
@@ -79,6 +84,7 @@ lithium_wine_exec() {
     PATH="$EXTRA_PATH:$PATH" \
     WINEPREFIX="$prefix_dir" \
     DYLD_FALLBACK_LIBRARY_PATH="$DYLD_FALLBACK_LIBRARY_PATH_VALUE" \
+    GST_PLUGIN_PATH="$GST_PLUGIN_PATH_VALUE" \
     WINEDLLOVERRIDES="$overrides" \
     "$WINE_BIN" "$@"
 }

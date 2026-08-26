@@ -6,6 +6,79 @@ components (WineHQ Wine, Valve's DXVK/vkd3d-proton, Khronos's MoltenVK)
 rather than Apple's private Game Porting Toolkit engine. Full roadmap and
 architecture rationale: [`docs/plan.md`](docs/plan.md).
 
+## Quickstart
+
+**Prerequisite: Wine, DXVK, and MoltenVK must already be built** under
+`build/wine`, `build/dxvk`, and `~/external/MoltenVK` respectively (see
+`docs/plan.md` Phases 0-2 for how — this isn't a single automated script
+yet, just the manual build steps documented there). Run `lithium doctor`
+to check whether that's already true on your machine:
+
+```
+./scripts/lithium doctor
+```
+
+If everything shows `OK` and it prints `Status: ready`, you're good to go.
+
+### 1. Create a prefix
+
+Each game gets its own Wine prefix (an isolated "Windows install"):
+
+```
+./scripts/lithium prefix-create <name>
+```
+
+The **first boot is genuinely slow** (several minutes) under Rosetta 2 —
+that's normal first-time Windows registry/COM setup, not a hang. A "Wine
+Mono Installer" popup is suppressed automatically during this step. See
+`docs/troubleshooting.md` if you're unsure whether something is actually
+stuck.
+
+### 2. Get the game's files into the prefix
+
+This is the part that varies most by game, and where you're most likely to
+hit friction — see `docs/context.md` for known limitations.
+
+- **If you have raw, already-extracted game files** (an `.exe` plus its
+  data folder), just copy them into
+  `prefixes/<name>/drive_c/Games/<game>/` and skip to step 3.
+- **If you have a Windows installer**, try:
+  ```
+  ./scripts/lithium install <name> /path/to/setup.exe
+  ```
+  **Caveat**: if the installer is a classic **InnoSetup** installer (common
+  for GOG-style offline installers) and its stub is **32-bit**, this can
+  hang indefinitely due to a real Wine bug in 32-bit (WoW64) support under
+  Rosetta 2 — confirmed while installing Hollow Knight: Silksong. If it
+  does:
+  ```
+  brew install innoextract
+  innoextract --gog -d "prefixes/<name>/drive_c/Games/<game>" /path/to/setup.exe
+  ```
+  This extracts the game files directly without running any Windows code,
+  sidestepping the bug entirely. Modern games are almost always 64-bit-only
+  anyway, so the extracted `.exe` runs fine afterward with no WoW64
+  involved. Full story: `docs/troubleshooting.md` and `docs/plan.md` Phase 4.
+
+### 3. Run the game
+
+```
+./scripts/lithium run <name> "prefixes/<name>/drive_c/Games/<game>/Game.exe"
+```
+
+This sets up `WINEPREFIX`, the DXVK DLL overrides, the MoltenVK/Homebrew
+library paths, and launches everything under Rosetta 2 (`arch -x86_64`) for
+you — you don't need to set any of that up by hand.
+
+### 4. Shut down cleanly
+
+Wine keeps a background session (`wineserver` + helper processes) running
+after a game closes, so it's fast to relaunch. To fully tear it down:
+
+```
+./scripts/lithium prefix-kill <name>
+```
+
 ## Approach
 
 Apple Silicon has no native x86_64 CPU and no native Vulkan/DirectX, so two

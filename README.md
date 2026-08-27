@@ -26,7 +26,7 @@ first — `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer`
 — then run:
 
 ```
-./build.sh
+uv run lithium build
 ```
 
 This installs the Homebrew dependencies (both the arm64 build tools and a

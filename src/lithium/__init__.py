@@ -7,6 +7,7 @@ below if you relocate things.
 """
 
 import os
+import platform
 import shutil
 import subprocess
 from pathlib import Path
@@ -25,7 +26,8 @@ WINE_BUILD_DIR = LITHIUM_ROOT / "build" / "wine"
 WINE_BIN = WINE_BUILD_DIR / "loader" / "wine"
 WINESERVER_BIN = WINE_BUILD_DIR / "server" / "wineserver"
 
-DXVK_BUILD_DIR = LITHIUM_ROOT / "build" / "dxvk" / "src"
+DXVK_MESON_BUILD_DIR = LITHIUM_ROOT / "build" / "dxvk"
+DXVK_BUILD_DIR = DXVK_MESON_BUILD_DIR / "src"
 # (subdir, dllname) pairs, copied into the prefix's system32 on prefix-create
 DXVK_DLLS = [
     ("d3d8", "d3d8.dll"),
@@ -69,6 +71,19 @@ GST_PLUGIN_PATH_VALUE = "/usr/local/lib/gstreamer-1.0"
 # an unrecoverable renderer crash). See docs/context.md and
 # project_lithium_dxvk_patches in memory.
 DXVK_CONFIG_VALUE = "dxgi.syncInterval = 1"
+
+# --- `lithium build` (host bootstrap: Homebrew, Wine, DXVK, MoltenVK) ---
+# These are source checkouts / build trees, not part of this repo -- see
+# docs/plan.md Phases 0-2 and project_lithium_build_env in memory for the
+# "why" behind each step below.
+EXTERNAL_DIR = Path.home() / "external"
+WINE_SRC = EXTERNAL_DIR / "wine"
+WINE_TAG = "wine-11.16"
+MOLTENVK_SRC = EXTERNAL_DIR / "MoltenVK"
+PROTON_SRC = EXTERNAL_DIR / "Proton"
+DXVK_SRC = PROTON_SRC / "dxvk"
+DXVK_PATCH = LITHIUM_ROOT / "patches" / "dxvk-apple-silicon.patch"
+BISON_PATH = "/opt/homebrew/opt/bison/bin"
 
 
 def require_wine_build() -> None:
@@ -141,6 +156,197 @@ def lithium_winetricks_exec(prefix_dir: Path, *verbs: str) -> int:
     # into wine calls winetricks makes internally, but doesn't hurt either.
     proc = subprocess.run(_dyld_wrapped_command("winetricks", *verbs), env=env)
     return proc.returncode
+
+
+def _log(message: str) -> None:
+    typer.echo(f"==> {message}")
+
+
+def _run(command: list[str], *, cwd: Optional[Path] = None, env: Optional[dict] = None) -> None:
+    proc = subprocess.run(command, cwd=cwd, env=env)
+    if proc.returncode != 0:
+        raise typer.Exit(proc.returncode)
+
+
+def _build_sanity_checks() -> None:
+    if platform.system() != "Darwin" or platform.machine() != "arm64":
+        typer.echo("error: `lithium build` targets Apple Silicon macOS only", err=True)
+        raise typer.Exit(1)
+
+    xcode_path = subprocess.run(
+        ["xcode-select", "-p"], capture_output=True, text=True
+    ).stdout.strip()
+    if "Xcode.app" not in xcode_path:
+        typer.echo(
+            f"error: full Xcode must be installed and selected (found: {xcode_path or 'none'}).\n"
+            "       Install Xcode from the App Store, then run:\n"
+            "       sudo xcode-select -s /Applications/Xcode.app/Contents/Developer",
+            err=True,
+        )
+        raise typer.Exit(1)
+
+    if not shutil.which("brew", path="/opt/homebrew/bin"):
+        typer.echo("error: arm64 Homebrew not found at /opt/homebrew (install it first)", err=True)
+        raise typer.Exit(1)
+
+
+def _build_arm64_brew_deps() -> None:
+    _log("Installing arm64 Homebrew build dependencies...")
+    _run(
+        [
+            "/opt/homebrew/bin/brew", "install",
+            "autoconf", "automake", "pkgconf", "meson", "ninja", "gettext",
+            "bison", "mingw-w64", "innoextract", "winetricks",
+        ]
+    )
+
+
+def _build_x86_64_brew_deps() -> None:
+    if not shutil.which("brew", path="/usr/local/bin"):
+        _log("Bootstrapping a second, x86_64 Homebrew prefix at /usr/local...")
+        _log("(this needs your admin password interactively)")
+        install_script = subprocess.run(
+            ["curl", "-fsSL", "https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        _run(["arch", "-x86_64", "/bin/bash", "-c", install_script])
+
+    _log("Installing x86_64 Homebrew runtime dependencies...")
+    _run(
+        [
+            "arch", "-x86_64", "/usr/local/bin/brew", "install",
+            "freetype", "sdl2", "gnutls", "mpg123", "gstreamer", "libffi", "bzip2", "zlib",
+        ]
+    )
+
+    # Homebrew's bzip2 ships no .pc file, which breaks freetype2's pkg-config
+    # `Requires: bzip2` -- write one by hand.
+    extra_pkgconfig_dir = LITHIUM_ROOT / "build" / "extra-pkgconfig"
+    extra_pkgconfig_dir.mkdir(parents=True, exist_ok=True)
+    (extra_pkgconfig_dir / "bzip2.pc").write_text(
+        "prefix=/usr/local/opt/bzip2\n"
+        "exec_prefix=${prefix}\n"
+        "libdir=${exec_prefix}/lib\n"
+        "includedir=${prefix}/include\n"
+        "\n"
+        "Name: bzip2\n"
+        "Description: bzip2 compression library\n"
+        "Version: 1.0.8\n"
+        "Libs: -L${libdir} -lbz2\n"
+        "Cflags: -I${includedir}\n"
+    )
+
+
+def _build_moltenvk() -> None:
+    if not MOLTENVK_SRC.is_dir():
+        _log("Cloning MoltenVK...")
+        _run(["git", "clone", "https://github.com/KhronosGroup/MoltenVK.git", str(MOLTENVK_SRC)])
+
+    dylib = MOLTENVK_SRC / "Package/Release/MoltenVK/dynamic/dylib/macOS/libMoltenVK.dylib"
+    if dylib.is_file():
+        _log("MoltenVK already built, skipping.")
+        return
+
+    _log("Building MoltenVK (this takes a while)...")
+    _run(["./fetchDependencies", "--macos", "-v"], cwd=MOLTENVK_SRC)
+    _run(
+        [
+            "xcodebuild", "build", "-project", "MoltenVKPackaging.xcodeproj",
+            "-scheme", "MoltenVK Package (macOS only)",
+            "-configuration", "Release", "ARCHS=x86_64", "ONLY_ACTIVE_ARCH=NO",
+        ],
+        cwd=MOLTENVK_SRC,
+    )
+
+
+def _build_wine() -> None:
+    if not WINE_SRC.is_dir():
+        _log("Cloning WineHQ wine...")
+        _run(["git", "clone", "https://gitlab.winehq.org/wine/wine.git", str(WINE_SRC)])
+
+    _run(["git", "fetch", "--tags"], cwd=WINE_SRC)
+    _run(["git", "checkout", WINE_TAG], cwd=WINE_SRC)
+
+    wine_build_dir = WINE_BUILD_DIR
+    wine_build_dir.mkdir(parents=True, exist_ok=True)
+    moltenvk_include = MOLTENVK_SRC / "Package/Release/MoltenVK/include"
+    moltenvk_lib = MOLTENVK_SRC / "Package/Release/MoltenVK/dynamic/dylib/macOS"
+
+    if not (wine_build_dir / "Makefile").is_file():
+        _log(f"Configuring Wine ({WINE_TAG}, x86_64+i386 WoW64, Mac driver, GStreamer, MoltenVK)...")
+        env = os.environ.copy()
+        env["PATH"] = f"{BISON_PATH}:/opt/homebrew/bin:/usr/local/bin:{env.get('PATH', '')}"
+        env["PKG_CONFIG_PATH"] = (
+            f"{LITHIUM_ROOT / 'build' / 'extra-pkgconfig'}:/usr/local/lib/pkgconfig:/usr/local/share/pkgconfig"
+        )
+        env["CC"] = "gcc -std=gnu23 -m64"
+        env["CPPFLAGS"] = f"-I{moltenvk_include}"
+        env["LDFLAGS"] = f"-L{moltenvk_lib}"
+        _run(
+            [str(WINE_SRC / "configure"), "--enable-archs=i386,x86_64", "--without-x", "--without-wayland"],
+            cwd=wine_build_dir,
+            env=env,
+        )
+    else:
+        _log("Wine already configured, skipping configure step.")
+
+    _log("Building Wine (this takes a while)...")
+    env = os.environ.copy()
+    env["PATH"] = f"{BISON_PATH}:/opt/homebrew/bin:/usr/local/bin:{env.get('PATH', '')}"
+    _run(["make", f"-j{os.cpu_count()}"], cwd=wine_build_dir, env=env)
+
+
+def _build_dxvk() -> None:
+    if not PROTON_SRC.is_dir():
+        _log("Cloning Proton (for the dxvk submodule)...")
+        _run(["git", "clone", "https://github.com/ValveSoftware/Proton.git", str(PROTON_SRC)])
+
+    if not (DXVK_SRC / "meson.build").is_file():
+        _run(["git", "submodule", "update", "--init", "dxvk"], cwd=PROTON_SRC)
+
+    already_patched = subprocess.run(
+        ["git", "apply", "--check", "--reverse", str(DXVK_PATCH)],
+        cwd=DXVK_SRC,
+        capture_output=True,
+    ).returncode == 0
+    if not already_patched:
+        _log("Applying Apple Silicon DXVK patches...")
+        _run(["git", "apply", str(DXVK_PATCH)], cwd=DXVK_SRC)
+    else:
+        _log("DXVK patches already applied, skipping.")
+
+    if not (DXVK_MESON_BUILD_DIR / "build.ninja").is_file():
+        _log("Configuring DXVK (mingw cross build)...")
+        _run(
+            [
+                "meson", "setup", "--cross-file", str(DXVK_SRC / "build-win64.txt"),
+                "-Dbuildtype=release", str(DXVK_MESON_BUILD_DIR), str(DXVK_SRC),
+            ]
+        )
+    else:
+        _log("DXVK already configured, skipping configure step.")
+
+    _log("Building DXVK...")
+    _run(["ninja", "-C", str(DXVK_MESON_BUILD_DIR)])
+
+
+@app.command()
+def build() -> None:
+    """Build the Wine + DXVK + MoltenVK stack from source (one-time host bootstrap).
+
+    Safe to re-run -- already-built pieces are skipped. Requires full Xcode
+    (not just Command Line Tools) already installed and selected via
+    `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer`.
+    """
+    _build_sanity_checks()
+    _build_arm64_brew_deps()
+    _build_x86_64_brew_deps()
+    _build_moltenvk()
+    _build_wine()
+    _build_dxvk()
+    _log("Done. Verify with: lithium doctor")
 
 
 @app.command()

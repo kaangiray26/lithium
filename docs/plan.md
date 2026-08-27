@@ -301,13 +301,16 @@ by value-to-effort.
       dependency installs, configure flags, and build order, so the
       project is reproducible on a fresh machine without re-deriving
       everything by hand.
-      **Done.** `build.sh` at the repo root: installs the arm64 Homebrew
-      build tools (`autoconf`, `automake`, `pkgconf`, `meson`, `ninja`,
-      `gettext`, `bison`, `mingw-w64`, `innoextract`, `winetricks`),
-      bootstraps the second x86_64 Homebrew prefix at `/usr/local` if it's
-      missing and installs the x86_64 runtime deps (`freetype`, `sdl2`,
-      `gnutls`, `mpg123`, `gstreamer`, `libffi`, `bzip2`, `zlib`), writes
-      the hand-rolled `bzip2.pc`, clones+builds MoltenVK (x86_64,
+      **Done, as `lithium build`** in `src/lithium` (originally written as
+      a standalone `build.sh`, then folded into the Python CLI so there's
+      a single tool for all Lithium operations instead of a separate
+      script to remember). Installs the arm64 Homebrew build tools
+      (`autoconf`, `automake`, `pkgconf`, `meson`, `ninja`, `gettext`,
+      `bison`, `mingw-w64`, `innoextract`, `winetricks`), bootstraps the
+      second x86_64 Homebrew prefix at `/usr/local` if it's missing and
+      installs the x86_64 runtime deps (`freetype`, `sdl2`, `gnutls`,
+      `mpg123`, `gstreamer`, `libffi`, `bzip2`, `zlib`), writes the
+      hand-rolled `bzip2.pc`, clones+builds MoltenVK (x86_64,
       `fetchDependencies` + `xcodebuild`), clones WineHQ wine and checks
       out `wine-11.16`, configures it with the exact flags/env recorded in
       `build/wine/config.log` (`--enable-archs=i386,x86_64 --without-x
@@ -320,12 +323,12 @@ by value-to-effort.
       plus the `khrPortabilityEnumeration` addition), and builds DXVK via
       meson/ninja against `build-win64.txt`. Idempotent by design (checks
       for existing clones/build output/patch state before redoing work) --
-      verified by running it end-to-end against the already-built stack:
-      correctly skipped every already-done step and left `uv run lithium
-      doctor` reporting "Status: ready" afterward. MoltenVK's Xcode
-      selection step is intentionally *not* automated (needs an
-      interactive App Store install + admin password); the script fails
-      fast with instructions if full Xcode isn't selected.
+      verified by running `uv run lithium build` end-to-end against the
+      already-built stack: correctly skipped every already-done step and
+      left `uv run lithium doctor` reporting "Status: ready" afterward.
+      MoltenVK's Xcode selection step is intentionally *not* automated
+      (needs an interactive App Store install + admin password); the
+      command fails fast with instructions if full Xcode isn't selected.
 - [ ] Package a real `dist/`: the CLI (`src/lithium`) currently hardcodes
       paths into the dev build trees (`build/wine`, `build/dxvk`) and
       `~/external/MoltenVK`. Lithium can't run on any other machine as-is.

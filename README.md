@@ -20,10 +20,21 @@ Then run commands with `uv run lithium ...` (or activate `.venv` and just
 run `lithium ...` directly).
 
 **Prerequisite: Wine, DXVK, and MoltenVK must already be built** under
-`build/wine`, `build/dxvk`, and `~/external/MoltenVK` respectively (see
-`docs/plan.md` Phases 0-2 for how — this isn't a single automated script
-yet, just the manual build steps documented there). Run `lithium doctor`
-to check whether that's already true on your machine:
+`build/wine`, `build/dxvk`, and `~/external/MoltenVK` respectively. Full
+Xcode (not just the Command Line Tools) must be installed and selected
+first — `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer`
+— then run:
+
+```
+./build.sh
+```
+
+This installs the Homebrew dependencies (both the arm64 build tools and a
+second x86_64 Homebrew prefix at `/usr/local` for runtime deps), clones
+and builds MoltenVK and WineHQ Wine, and builds DXVK with the Apple
+Silicon patches applied. It's safe to re-run — already-built pieces are
+skipped. See `docs/plan.md` Phases 0-2 for the rationale behind each step.
+Run `lithium doctor` to check whether the stack is already in place:
 
 ```
 uv run lithium doctor

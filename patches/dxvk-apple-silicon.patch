@@ -1,0 +1,99 @@
+diff --git a/src/dxvk/dxvk_device_info.cpp b/src/dxvk/dxvk_device_info.cpp
+index c45e62bc..e3ba289d 100644
+--- a/src/dxvk/dxvk_device_info.cpp
++++ b/src/dxvk/dxvk_device_info.cpp
+@@ -777,7 +777,12 @@ namespace dxvk {
+       ENABLE_FEATURE(core.features, fillModeNonSolid, true),
+       ENABLE_FEATURE(core.features, fragmentStoresAndAtomics, false),
+       ENABLE_FEATURE(core.features, fullDrawIndexUint32, true),
+-      ENABLE_FEATURE(core.features, geometryShader, true),
++      // Apple GPUs (Metal, via MoltenVK) have no geometry shader hardware
++      // stage at all -- this is a permanent API limitation, not a missing
++      // driver feature. D3D10/11 nominally mandates it, but most titles
++      // (esp. 2D/2.5D engines like Unity's default renderer) never use it,
++      // so treat it as optional rather than rejecting the only adapter.
++      ENABLE_FEATURE(core.features, geometryShader, false),
+       ENABLE_FEATURE(core.features, imageCubeArray, true),
+       ENABLE_FEATURE(core.features, independentBlend, true),
+       ENABLE_FEATURE(core.features, logicOp, false),
+@@ -789,7 +794,10 @@ namespace dxvk {
+       ENABLE_FEATURE(core.features, sampleRateShading, true),
+       ENABLE_FEATURE(core.features, samplerAnisotropy, false),
+       ENABLE_FEATURE(core.features, shaderClipDistance, true),
+-      ENABLE_FEATURE(core.features, shaderCullDistance, true),
++      // Metal has no cull-distance equivalent; MoltenVK always reports this
++      // as unsupported (maxCullDistances == 0). Same rationale as
++      // geometryShader above.
++      ENABLE_FEATURE(core.features, shaderCullDistance, false),
+       ENABLE_FEATURE(core.features, shaderFloat64, false),
+       ENABLE_FEATURE(core.features, shaderImageGatherExtended, true),
+       ENABLE_FEATURE(core.features, shaderInt16, false),
+@@ -869,8 +877,9 @@ namespace dxvk {
+       ENABLE_EXT_FEATURE(extCustomBorderColor, customBorderColors, false),
+       ENABLE_EXT_FEATURE(extCustomBorderColor, customBorderColorWithoutFormat, false),
+ 
+-      /* Depth clip matches D3D semantics where depth clamp does not */
+-      ENABLE_EXT_FEATURE(extDepthClipEnable, depthClipEnable, true),
++      /* Depth clip matches D3D semantics where depth clamp does not.
++       * MoltenVK does not implement VK_EXT_depth_clip_enable at all. */
++      ENABLE_EXT_FEATURE(extDepthClipEnable, depthClipEnable, false),
+ 
+       /* Controls depth bias behaviour with emulated depth formats */
+       ENABLE_EXT_FEATURE(extDepthBiasControl, depthBiasControl, false),
+@@ -923,9 +932,9 @@ namespace dxvk {
+       ENABLE_EXT_FEATURE(extPageableDeviceLocalMemory, pageableDeviceLocalMemory, false),
+ 
+       /* Robustness, all features effectively required for correctness */
+-      ENABLE_EXT_FEATURE(extRobustness2, robustBufferAccess2, true),
++      ENABLE_EXT_FEATURE(extRobustness2, robustBufferAccess2, false), // MoltenVK advertises VK_EXT_robustness2 but doesn't support this sub-feature
+       ENABLE_EXT_FEATURE(extRobustness2, robustImageAccess2, false),
+-      ENABLE_EXT_FEATURE(extRobustness2, nullDescriptor, true),
++      ENABLE_EXT_FEATURE(extRobustness2, nullDescriptor, false), // ditto
+ 
+       /* Sample locations, used to "disable" MSAA rendering */
+       ENABLE_EXT(extSampleLocations, false),
+@@ -959,8 +968,8 @@ namespace dxvk {
+       ENABLE_EXT(khrLoadStoreOpNone, false),
+ 
+       /* Maintenance features, relied on in various parts of the code */
+-      ENABLE_EXT_FEATURE(khrMaintenance5, maintenance5, true),
+-      ENABLE_EXT_FEATURE(khrMaintenance6, maintenance6, true),
++      ENABLE_EXT_FEATURE(khrMaintenance5, maintenance5, false), // be lenient in case MoltenVK's support is partial
++      ENABLE_EXT_FEATURE(khrMaintenance6, maintenance6, false), // ditto
+       ENABLE_EXT_FEATURE(khrMaintenance7, maintenance7, false),
+ 
+       /* Dependency for graphics pipeline library */
+diff --git a/src/dxvk/dxvk_instance.cpp b/src/dxvk/dxvk_instance.cpp
+index f893dc5c..59257faf 100644
+--- a/src/dxvk/dxvk_instance.cpp
++++ b/src/dxvk/dxvk_instance.cpp
+@@ -253,6 +253,9 @@ namespace dxvk {
+       info.enabledExtensionCount    = extensionNames.size();
+       info.ppEnabledExtensionNames  = extensionNames.data();
+ 
++      if (m_extensionInfo.khrPortabilityEnumeration.specVersion)
++        info.flags |= VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
++
+       VkResult status = m_vkl->vkCreateInstance(&info, nullptr, &instance);
+ 
+       if (status != VK_SUCCESS) {
+@@ -371,6 +374,7 @@ namespace dxvk {
+       &extensions.extDebugUtils,
+       &extensions.extSurfaceMaintenance1,
+       &extensions.khrGetSurfaceCapabilities2,
++      &extensions.khrPortabilityEnumeration,
+       &extensions.khrSurface,
+       &extensions.khrSurfaceMaintenance1,
+     }};
+diff --git a/src/dxvk/dxvk_instance.h b/src/dxvk/dxvk_instance.h
+index b302ae0d..b9aa0fc8 100644
+--- a/src/dxvk/dxvk_instance.h
++++ b/src/dxvk/dxvk_instance.h
+@@ -29,6 +29,7 @@ namespace dxvk {
+     VkExtensionProperties extDebugUtils               = vk::makeExtension(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+     VkExtensionProperties extSurfaceMaintenance1      = vk::makeExtension(VK_EXT_SURFACE_MAINTENANCE_1_EXTENSION_NAME);
+     VkExtensionProperties khrGetSurfaceCapabilities2  = vk::makeExtension(VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME);
++    VkExtensionProperties khrPortabilityEnumeration   = vk::makeExtension(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
+     VkExtensionProperties khrSurface                  = vk::makeExtension(VK_KHR_SURFACE_EXTENSION_NAME);
+     VkExtensionProperties khrSurfaceMaintenance1      = vk::makeExtension(VK_KHR_SURFACE_MAINTENANCE_1_EXTENSION_NAME);
+   };

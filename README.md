@@ -1,3 +1,5 @@
+![lithium](docs/images/lithium.png)
+
 # Lithium
 Compatibility tool for macOS based on Valve's Proton and additional components
 
@@ -20,7 +22,7 @@ Then run commands with `uv run lithium ...` (or activate `.venv` and just
 run `lithium ...` directly).
 
 **Prerequisite: Wine, DXVK, and MoltenVK must already be built** under
-`build/wine`, `build/dxvk`, and `~/external/MoltenVK` respectively. Full
+`build/wine`, `build/dxvk`, and `external/MoltenVK` respectively. Full
 Xcode (not just the Command Line Tools) must be installed and selected
 first — `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer`
 — then run:

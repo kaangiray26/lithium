@@ -22,6 +22,12 @@ app = typer.Typer(
 
 LITHIUM_ROOT = Path(__file__).resolve().parent.parent.parent
 
+# Source checkouts cloned/built by `lithium build`, kept inside the project
+# (not e.g. ~/external) so that cloning the repo + running `lithium build`
+# reproduces the same layout on any machine. Gitignored -- these are large
+# upstream trees, not Lithium's own code.
+EXTERNAL_DIR = LITHIUM_ROOT / "external"
+
 WINE_BUILD_DIR = LITHIUM_ROOT / "build" / "wine"
 WINE_BIN = WINE_BUILD_DIR / "loader" / "wine"
 WINESERVER_BIN = WINE_BUILD_DIR / "server" / "wineserver"
@@ -40,7 +46,7 @@ DXVK_DLLS = [
 MOLTENVK_DYLIB_DIR = Path(
     os.environ.get(
         "LITHIUM_MOLTENVK_DIR",
-        str(Path.home() / "external/MoltenVK/Package/Release/MoltenVK/dynamic/dylib/macOS"),
+        str(EXTERNAL_DIR / "MoltenVK/Package/Release/MoltenVK/dynamic/dylib/macOS"),
     )
 )
 
@@ -73,15 +79,18 @@ GST_PLUGIN_PATH_VALUE = "/usr/local/lib/gstreamer-1.0"
 DXVK_CONFIG_VALUE = "dxgi.syncInterval = 1"
 
 # --- `lithium build` (host bootstrap: Homebrew, Wine, DXVK, MoltenVK) ---
-# These are source checkouts / build trees, not part of this repo -- see
-# docs/plan.md Phases 0-2 and project_lithium_build_env in memory for the
-# "why" behind each step below.
-EXTERNAL_DIR = Path.home() / "external"
+# Each upstream repo is pinned to an exact commit/tag (not just "clone and
+# use HEAD") so that cloning this repo and running `lithium build` produces
+# the same result every time, not whatever upstream happened to be on the
+# day you built it. See docs/plan.md Phases 0-2 and project_lithium_build_env
+# / project_lithium_dxvk_patches in memory for the "why" behind each pin.
 WINE_SRC = EXTERNAL_DIR / "wine"
-WINE_TAG = "wine-11.16"
+WINE_REF = "wine-11.16"
 MOLTENVK_SRC = EXTERNAL_DIR / "MoltenVK"
+MOLTENVK_REF = "v1.4.2"  # latest stable tag as of writing; no v1.4.3 tag yet
 PROTON_SRC = EXTERNAL_DIR / "Proton"
-DXVK_SRC = PROTON_SRC / "dxvk"
+PROTON_REF = "proton-11.0-2"  # latest stable tag as of writing
+DXVK_SRC = PROTON_SRC / "dxvk"  # pinned via PROTON_REF's recorded submodule commit
 DXVK_PATCH = LITHIUM_ROOT / "patches" / "dxvk-apple-silicon.patch"
 BISON_PATH = "/opt/homebrew/opt/bison/bin"
 
@@ -244,6 +253,9 @@ def _build_moltenvk() -> None:
         _log("Cloning MoltenVK...")
         _run(["git", "clone", "https://github.com/KhronosGroup/MoltenVK.git", str(MOLTENVK_SRC)])
 
+    _run(["git", "fetch", "--tags"], cwd=MOLTENVK_SRC)
+    _run(["git", "checkout", MOLTENVK_REF], cwd=MOLTENVK_SRC)
+
     dylib = MOLTENVK_SRC / "Package/Release/MoltenVK/dynamic/dylib/macOS/libMoltenVK.dylib"
     if dylib.is_file():
         _log("MoltenVK already built, skipping.")
@@ -267,7 +279,7 @@ def _build_wine() -> None:
         _run(["git", "clone", "https://gitlab.winehq.org/wine/wine.git", str(WINE_SRC)])
 
     _run(["git", "fetch", "--tags"], cwd=WINE_SRC)
-    _run(["git", "checkout", WINE_TAG], cwd=WINE_SRC)
+    _run(["git", "checkout", WINE_REF], cwd=WINE_SRC)
 
     wine_build_dir = WINE_BUILD_DIR
     wine_build_dir.mkdir(parents=True, exist_ok=True)
@@ -275,7 +287,7 @@ def _build_wine() -> None:
     moltenvk_lib = MOLTENVK_SRC / "Package/Release/MoltenVK/dynamic/dylib/macOS"
 
     if not (wine_build_dir / "Makefile").is_file():
-        _log(f"Configuring Wine ({WINE_TAG}, x86_64+i386 WoW64, Mac driver, GStreamer, MoltenVK)...")
+        _log(f"Configuring Wine ({WINE_REF}, x86_64+i386 WoW64, Mac driver, GStreamer, MoltenVK)...")
         env = os.environ.copy()
         env["PATH"] = f"{BISON_PATH}:/opt/homebrew/bin:/usr/local/bin:{env.get('PATH', '')}"
         env["PKG_CONFIG_PATH"] = (
@@ -284,8 +296,19 @@ def _build_wine() -> None:
         env["CC"] = "gcc -std=gnu23 -m64"
         env["CPPFLAGS"] = f"-I{moltenvk_include}"
         env["LDFLAGS"] = f"-L{moltenvk_lib}"
+        # Wine itself is built as a native x86_64 macOS binary (see
+        # project_lithium_overview in memory for why) -- configure/make must
+        # run under `arch -x86_64` (Rosetta) so the compiler it resolves is
+        # the x86_64 slice. Without this, the host's native arm64 gcc/ld
+        # rejects the x86_64-only Homebrew dylibs outright (freetype,
+        # gnutls, gstreamer, ...) as wrong-architecture, which surfaces as a
+        # misleading "-lfreetype not found" / "-lgnutls not found" in
+        # configure's output even though the .dylib files are right there.
         _run(
-            [str(WINE_SRC / "configure"), "--enable-archs=i386,x86_64", "--without-x", "--without-wayland"],
+            [
+                "arch", "-x86_64", str(WINE_SRC / "configure"),
+                "--enable-archs=i386,x86_64", "--without-x", "--without-wayland",
+            ],
             cwd=wine_build_dir,
             env=env,
         )
@@ -295,7 +318,7 @@ def _build_wine() -> None:
     _log("Building Wine (this takes a while)...")
     env = os.environ.copy()
     env["PATH"] = f"{BISON_PATH}:/opt/homebrew/bin:/usr/local/bin:{env.get('PATH', '')}"
-    _run(["make", f"-j{os.cpu_count()}"], cwd=wine_build_dir, env=env)
+    _run(["arch", "-x86_64", "make", f"-j{os.cpu_count()}"], cwd=wine_build_dir, env=env)
 
 
 def _build_dxvk() -> None:
@@ -303,8 +326,11 @@ def _build_dxvk() -> None:
         _log("Cloning Proton (for the dxvk submodule)...")
         _run(["git", "clone", "https://github.com/ValveSoftware/Proton.git", str(PROTON_SRC)])
 
-    if not (DXVK_SRC / "meson.build").is_file():
-        _run(["git", "submodule", "update", "--init", "dxvk"], cwd=PROTON_SRC)
+    # Pinning Proton itself also pins which dxvk commit the submodule
+    # resolves to -- Proton's tree records an exact commit for that path.
+    _run(["git", "fetch", "--tags"], cwd=PROTON_SRC)
+    _run(["git", "checkout", PROTON_REF], cwd=PROTON_SRC)
+    _run(["git", "submodule", "update", "--init", "dxvk"], cwd=PROTON_SRC)
 
     already_patched = subprocess.run(
         ["git", "apply", "--check", "--reverse", str(DXVK_PATCH)],

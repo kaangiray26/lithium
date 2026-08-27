@@ -322,18 +322,77 @@ by value-to-effort.
       `robustness2`/`maintenance5`/`maintenance6` softened to optional,
       plus the `khrPortabilityEnumeration` addition), and builds DXVK via
       meson/ninja against `build-win64.txt`. Idempotent by design (checks
-      for existing clones/build output/patch state before redoing work) --
-      verified by running `uv run lithium build` end-to-end against the
-      already-built stack: correctly skipped every already-done step and
-      left `uv run lithium doctor` reporting "Status: ready" afterward.
+      for existing clones/build output/patch state before redoing work).
       MoltenVK's Xcode selection step is intentionally *not* automated
       (needs an interactive App Store install + admin password); the
       command fails fast with instructions if full Xcode isn't selected.
+
+      **Follow-up: made it genuinely reproducible, not just idempotent.**
+      Wine/MoltenVK/Proton originally cloned to `~/external/*` (outside the
+      repo, following the same convention as other reference-only clones
+      like `game-porting-toolkit`/`metal-cpp`/`typer`), and only Wine was
+      pinned to an exact ref (`wine-11.16`) -- MoltenVK and Proton just
+      cloned whatever HEAD happened to be that day. Fixed: all three now
+      live under `<project>/external/` (gitignored, alongside `build/`) and
+      are pinned to an exact commit each (`WINE_REF`/`MOLTENVK_REF`/
+      `PROTON_REF` constants in `src/lithium`) -- pinning Proton also pins
+      which commit its `dxvk` submodule resolves to, since that's recorded
+      in Proton's own tree.
+
+      Verified for real, not just re-run against an already-built stack:
+      moved the existing `~/external/{wine,MoltenVK,Proton}` into the
+      project (confirmed via `otool -L`/`otool -D` first that no compiled
+      binary has an absolute path baked in, so relocating source trees
+      doesn't break already-linked output), wiped `build/wine` and
+      `build/dxvk` (autotools' `Makefile` and meson's `build.ninja` both
+      hardcode the old absolute source path, so incremental rebuilds from
+      a moved source tree would've silently broken), and ran
+      `lithium build` fully fresh. **This caught a real, previously-latent
+      bug**: Wine's own `configure`/`make` were never wrapped in
+      `arch -x86_64`, so they ran under the host's native arm64 toolchain,
+      which rejects the x86_64-only Homebrew dylibs (freetype, gnutls,
+      ...) outright -- surfacing as a misleading `configure: error:
+      FreeType development files not found` even though the `.dylib`
+      files were right there (confirmed via a minimal repro: `gcc
+      -L/usr/local/lib -lfreetype ...` gives `ld: warning: ignoring file
+      '...libfreetype.dylib': found architecture 'x86_64', required
+      architecture 'arm64'`, whereas `arch -x86_64 gcc ...` links fine).
+      This had been masked ever since `build.sh` was first written,
+      because every prior test run found `build/wine` already built and
+      skipped configure (`make` with nothing to do "succeeds" instantly
+      either way) -- it only had a chance to surface once `build/wine` was
+      actually wiped and rebuilt from scratch. Fixed by wrapping both the
+      `configure` and `make` invocations in `arch -x86_64` inside
+      `_build_wine()`. Re-ran the full rebuild afterward: Wine and DXVK
+      both compiled clean from the new `external/` layout, and
+      `lithium run silksong cmd /c ...` against the freshly-rebuilt
+      binaries created a real MoltenVK `VkInstance` and correctly detected
+      the Apple M4 Pro GPU, confirming the rebuilt stack actually works at
+      runtime, not just that the files exist.
+
+      **Follow-up 2: switched to named stable-release tags instead of raw
+      commit SHAs where one exists.** `PROTON_REF` -> `proton-11.0-2`
+      (turned out to be the exact same commit already pinned by SHA, so
+      purely a readability win, zero functional change). `MOLTENVK_REF` ->
+      `v1.4.2` -- this one's a real change, not cosmetic: the previously
+      -pinned commit was 20 commits *past* `v1.4.2` (including a bump of
+      MoltenVK's own internal version string to "1.4.3", even though no
+      `v1.4.3` tag exists upstream yet), so pinning to the latest actual
+      stable tag means giving up those 20 commits (mostly new extension
+      support and draw-indirect fixes, nothing that looked required by our
+      DXVK patches). Didn't assume this was safe -- rebuilt MoltenVK
+      against `v1.4.2` for real (wiped the old `Package/` output first so
+      `lithium build` couldn't just skip past it) and re-verified against
+      the real game: DXVK still creates a working D3D11 device (`Created
+      VkInstance`, `GPU device: model: Apple M4 Pro`) with zero DXVK
+      feature-rejection or `VK_ERROR_DEVICE_LOST` lines in the log, same
+      as before the downgrade.
 - [ ] Package a real `dist/`: the CLI (`src/lithium`) currently hardcodes
       paths into the dev build trees (`build/wine`, `build/dxvk`) and
-      `~/external/MoltenVK`. Lithium can't run on any other machine as-is.
-      Only matters once this needs to be usable beyond this one dev Mac
-      (see Phase 3's original "on-disk layout" item, still skipped).
+      `<project>/external/MoltenVK`. Lithium can't run on any other
+      machine as-is. Only matters once this needs to be usable beyond this
+      one dev Mac (see Phase 3's original "on-disk layout" item, still
+      skipped).
 - [ ] Add automated tests for the `lithium` CLI (`src/lithium`) -- zero
       test coverage currently. Even basic tests (path resolution, env var
       construction, `doctor` logic) would catch regressions as the tool

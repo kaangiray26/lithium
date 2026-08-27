@@ -1,6 +1,7 @@
 .DS_Store
 gamefiles/
 build/
+external/
 prefixes/
 dist/
 .venv/

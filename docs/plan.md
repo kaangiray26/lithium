@@ -237,9 +237,29 @@ Rationale, given what's actually available locally (see `docs/resources.md`):
       (`vcrun2019`) over the network. DXVK auto-install isn't part of this
       -- that's still handled by `prefix-create` copying the DLLs directly,
       which was simpler and already worked before this.
-- [ ] Evaluate Steam Play `compatibilitytool.vdf` integration for launching
+- [x] Evaluate Steam Play `compatibilitytool.vdf` integration for launching
       Steam-owned games directly through Steam, reusing Proton's manifest
-      format.
+      format. **Evaluated and confirmed not viable on macOS right now.**
+      Initially assumed (from general knowledge) that Steam Play is
+      Linux-only, but direct inspection of the real, currently-installed
+      macOS Steam client complicated that: `steamclient.dylib` (the real
+      client library, not the small `steam_osx` bootstrap stub) genuinely
+      contains the full compat-tool backend --
+      `compatibilitytool.vdf`/`toolmanifest.vdf` parsing,
+      `compatibilitytools.d` scanning, classes like
+      `CLoadCompatibilityToolManifestJob` -- almost certainly shared
+      codebase with the Linux build. So we actually registered Lithium as
+      a real compat tool (`~/Library/Application Support/Steam/
+      compatibilitytools.d/Lithium/`, with `to_oslist` set to `macos`) and
+      pointed it at a diagnostic-only launcher to see what Steam would
+      invoke it with. **Conclusive result, direct from the user**: Steam's
+      macOS Settings has no "Compatibility" section at all, confirmed by
+      checking the real client UI -- and the diagnostic launcher log file
+      was never created, meaning Steam never even attempted to invoke the
+      registered tool. So the backend code exists but the macOS UI never
+      exposes it to users; there's no way to select a compat tool through
+      any current UI path. Cleaned up the test registration afterward. Not
+      worth revisiting unless Valve ships macOS UI for this.
 - [ ] Evaluate MetalFX upscaling / frame interpolation integration using
       `metal-cpp` for a future custom-Metal graphics backend, as a
       longer-term alternative to the DXVK+MoltenVK path.

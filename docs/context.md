@@ -82,23 +82,7 @@ details (known limitations, status) that don't belong in a checklist.
   weighed against losing ~1000 commits of unrelated upstream fixes by
   staying on the older tag long-term. Full writeup:
   `project_lithium_gstreamer_video_bug` in memory.
-- **Toggling VSync in-game crashes the renderer.** Confirmed reproducible:
-  changing the VSync setting in Silksong's video options reliably triggers
-  `[mvk-error] VK_ERROR_OUT_OF_DEVICE_MEMORY: Lost VkDevice ...
-  IOGPUCommandBufferCallbackErrorInvalidResource`, followed by repeated
-  `DxvkSubmissionQueue: Command submission failed: VK_ERROR_DEVICE_LOST` —
-  an unrecoverable renderer crash (frozen/black screen, process must be
-  killed). Looks like a real bug in DXVK/MoltenVK's present-mode-switch
-  path (recreating the swapchain with a different present interval at
-  runtime references an invalid/stale Metal resource). The same crash
-  signature was also seen once spontaneously without any settings change,
-  suggesting some swapchain-recreation-adjacent trigger, not exclusively
-  the VSync toggle itself. **Workaround, not yet verified**: DXVK supports
-  pinning the present interval via config (`dxgi.syncInterval` in
-  `dxvk.conf` or `DXVK_CONFIG` env var) so the game's own toggle doesn't
-  cause a live swapchain reconfiguration — worth trying before attempting
-  any real fix. For now: don't toggle VSync in-game.
-- **No packaged `dist/` yet.** `scripts/lithium` points directly at the dev
+- **No packaged `dist/` yet.** `src/lithium` points directly at the dev
   build trees under `build/wine` and `build/dxvk`, not a relocatable,
   packaged runtime. Fine for single-machine development, not yet suitable
   for distributing to another Mac.
@@ -124,6 +108,35 @@ details (known limitations, status) that don't belong in a checklist.
   Meaningful headroom left on a 2D/2.5D title — no sign the translation
   stack (Rosetta -> Wine -> DXVK -> MoltenVK) is costing real performance
   for this class of game.
+- **Toggling VSync in-game** — previously crashed the renderer
+  (`VK_ERROR_OUT_OF_DEVICE_MEMORY: Lost VkDevice`, unrecoverable). Fixed by
+  pinning `dxgi.syncInterval = 1` via `DXVK_CONFIG` so the game's toggle
+  can't trigger a live swapchain reconfiguration (the confirmed crash
+  trigger). Verified: DXVK loads the pinned config and toggling VSync
+  in-game no longer crashes. Finding this fix also surfaced a second, more
+  serious bug: `DYLD_FALLBACK_LIBRARY_PATH` had silently never reached
+  Wine at all through the Python CLI since its migration -- see
+  `project_lithium_python_cli_dyld_bug` in memory for the full writeup.
+
+## Gotchas for future `src/lithium` changes
+
+- **`arch` strips `DYLD_*` environment variables from its own inherited
+  environment before exec'ing anything** (a macOS restricted/SIP-binary
+  security behavior) -- passing `DYLD_FALLBACK_LIBRARY_PATH` via
+  `subprocess.run(..., env=...)` when `arch` is the first thing exec'd
+  silently does nothing. Other env vars (`WINEPREFIX`, etc.) are
+  unaffected -- this is specific to `DYLD_*`. Always route it through
+  `_dyld_wrapped_command()` (an explicit `/usr/bin/env VAR=val` argv step,
+  which builds its child's environment from argv rather than by
+  inheritance) instead of the `env=` dict. This also means the same
+  problem hits *any* new subprocess call added to `src/lithium` that
+  starts with `arch` and needs a `DYLD_*` variable -- don't forget it.
+- This trick does **not** help if the actual target is itself a
+  SIP-protected shell (e.g. `/bin/sh`, `/bin/bash`) -- shells re-trigger
+  the same stripping on their own inherited environment regardless of
+  what an intervening `env` step set. This is why `winetricks` (a
+  `#!/bin/sh` script) still can't get `DYLD_FALLBACK_LIBRARY_PATH` into
+  wine calls it makes internally, even after the fix above.
 
 ## Status snapshot
 

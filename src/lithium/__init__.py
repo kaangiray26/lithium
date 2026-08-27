@@ -63,6 +63,13 @@ WINEDLLOVERRIDES_VALUE = "d3d8,d3d9,d3d10core,d3d11,dxgi=n"
 # by DYLD_FALLBACK_LIBRARY_PATH_VALUE above).
 GST_PLUGIN_PATH_VALUE = "/usr/local/lib/gstreamer-1.0"
 
+# Pin the present interval so a game's own in-game VSync toggle can't
+# trigger a live swapchain reconfiguration -- that's a confirmed trigger
+# for a DXVK/MoltenVK bug (VK_ERROR_OUT_OF_DEVICE_MEMORY: Lost VkDevice,
+# an unrecoverable renderer crash). See docs/context.md and
+# project_lithium_dxvk_patches in memory.
+DXVK_CONFIG_VALUE = "dxgi.syncInterval = 1"
+
 
 def require_wine_build() -> None:
     if not os.access(WINE_BIN, os.X_OK):
@@ -72,6 +79,29 @@ def require_wine_build() -> None:
 
 def prefix_path(name: str) -> Path:
     return PREFIXES_DIR / name
+
+
+def _dyld_wrapped_command(*command: str) -> list[str]:
+    """Wrap a command so DYLD_FALLBACK_LIBRARY_PATH actually survives.
+
+    macOS strips DYLD_* environment variables from a restricted (SIP)
+    binary's own inherited environment the moment it's exec'd -- `arch`
+    is one such binary, so passing DYLD_FALLBACK_LIBRARY_PATH via
+    subprocess's `env=` alone never reaches the target when `arch` is the
+    first thing exec'd (verified empirically; other vars like WINEPREFIX
+    are unaffected, only DYLD_* is stripped this way). Explicitly setting
+    it as a literal `/usr/bin/env VAR=val` argv entry works instead,
+    since `env` constructs a fresh envp from its own argv rather than by
+    inheritance, and the actual target (our own Wine binary) isn't itself
+    a restricted binary. This does NOT help if the target itself is a
+    restricted shell (e.g. winetricks' `#!/bin/sh`) -- shells re-trigger
+    the same stripping on their own inherited environment regardless.
+    """
+    return [
+        "arch", "-x86_64", "/usr/bin/env",
+        f"DYLD_FALLBACK_LIBRARY_PATH={DYLD_FALLBACK_LIBRARY_PATH_VALUE}",
+        *command,
+    ]
 
 
 def lithium_wine_exec(prefix_dir: Path, *args: str, extra_dll_overrides: Optional[str] = None) -> int:
@@ -85,11 +115,11 @@ def lithium_wine_exec(prefix_dir: Path, *args: str, extra_dll_overrides: Optiona
     env = os.environ.copy()
     env["PATH"] = f"{EXTRA_PATH}:{env.get('PATH', '')}"
     env["WINEPREFIX"] = str(prefix_dir)
-    env["DYLD_FALLBACK_LIBRARY_PATH"] = DYLD_FALLBACK_LIBRARY_PATH_VALUE
     env["GST_PLUGIN_PATH"] = GST_PLUGIN_PATH_VALUE
     env["WINEDLLOVERRIDES"] = overrides
+    env["DXVK_CONFIG"] = DXVK_CONFIG_VALUE
 
-    proc = subprocess.run(["arch", "-x86_64", str(WINE_BIN), *args], env=env)
+    proc = subprocess.run(_dyld_wrapped_command(str(WINE_BIN), *args), env=env)
     return proc.returncode
 
 
@@ -102,11 +132,14 @@ def lithium_winetricks_exec(prefix_dir: Path, *verbs: str) -> int:
     env["WINEPREFIX"] = str(prefix_dir)
     env["WINE"] = str(WINE_BIN)
     env["WINESERVER"] = str(WINESERVER_BIN)
-    env["DYLD_FALLBACK_LIBRARY_PATH"] = DYLD_FALLBACK_LIBRARY_PATH_VALUE
     env["GST_PLUGIN_PATH"] = GST_PLUGIN_PATH_VALUE
     env["WINEDLLOVERRIDES"] = WINEDLLOVERRIDES_VALUE
 
-    proc = subprocess.run(["arch", "-x86_64", "winetricks", *verbs], env=env)
+    # Note: winetricks is a `#!/bin/sh` script, and shells re-trigger their
+    # own DYLD_* stripping regardless of this wrapper -- see
+    # _dyld_wrapped_command's docstring. So this won't fix DYLD propagation
+    # into wine calls winetricks makes internally, but doesn't hurt either.
+    proc = subprocess.run(_dyld_wrapped_command("winetricks", *verbs), env=env)
     return proc.returncode
 
 

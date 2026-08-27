@@ -264,6 +264,58 @@ Rationale, given what's actually available locally (see `docs/resources.md`):
       `metal-cpp` for a future custom-Metal graphics backend, as a
       longer-term alternative to the DXVK+MoltenVK path.
 
+## Phase 7 — Project improvement backlog
+
+Identified after the roadmap above was otherwise complete; roughly ordered
+by value-to-effort.
+
+- [x] Fix the VSync/device-lost crash: pinned `dxgi.syncInterval = 1` via
+      `DXVK_CONFIG` (baked into `lithium_wine_exec` in `src/lithium`) so
+      toggling VSync in a game's settings can't trigger a live swapchain
+      reconfiguration. **Confirmed fixed** -- verified DXVK actually loads
+      the config (`Found config env: dxgi.syncInterval = 1` in the log)
+      and the user tested toggling VSync in-game with no crash, no
+      `DEVICE_LOST`/`Lost VkDevice` errors in the log.
+      Found and fixed a second, more serious bug along the way: the
+      Python CLI port had never actually delivered
+      `DYLD_FALLBACK_LIBRARY_PATH` to Wine at all (macOS strips `DYLD_*`
+      vars from a restricted/SIP binary's own inherited environment the
+      moment it's exec'd -- `arch` is one such binary, so passing it via
+      `subprocess.run(..., env=...)` alone never worked; other vars like
+      `WINEPREFIX` were unaffected, verified this is DYLD-specific). This
+      had been silently broken since the CLI migration -- FreeType missing
+      is non-fatal so it went unnoticed, but it meant MoltenVK could fail
+      to load intermittently-looking-but-actually-always-broken, since it
+      only surfaced once something *required* Vulkan to succeed. Fixed by
+      routing `DYLD_FALLBACK_LIBRARY_PATH` through an explicit
+      `/usr/bin/env VAR=val` argv step instead of relying on inherited
+      environment -- `env` constructs its child's envp from its own argv
+      rather than by inheritance, sidestepping the stripping. Does *not*
+      fix DYLD propagation into wine calls made *by* winetricks
+      internally, since winetricks is a `#!/bin/sh` script and shells
+      re-trigger the same stripping on their own -- low-impact since
+      typical winetricks verbs don't need graphics.
+- [ ] Automate the build: Phases 0-2 (Wine/DXVK/MoltenVK) are currently
+      manual steps documented in prose across this file, not an actual
+      script. Write a real `build.sh` (or similar) capturing the Homebrew
+      dependency installs, configure flags, and build order, so the
+      project is reproducible on a fresh machine without re-deriving
+      everything by hand.
+- [ ] Package a real `dist/`: the CLI (`src/lithium`) currently hardcodes
+      paths into the dev build trees (`build/wine`, `build/dxvk`) and
+      `~/external/MoltenVK`. Lithium can't run on any other machine as-is.
+      Only matters once this needs to be usable beyond this one dev Mac
+      (see Phase 3's original "on-disk layout" item, still skipped).
+- [ ] Add automated tests for the `lithium` CLI (`src/lithium`) -- zero
+      test coverage currently. Even basic tests (path resolution, env var
+      construction, `doctor` logic) would catch regressions as the tool
+      grows.
+- [ ] Lower priority / already tracked elsewhere: the cutscene
+      `msvproc`/GStreamer stride-alignment bug (cosmetic, one skippable
+      video) and the unimplemented XInput/Windows.Gaming.Input stubs
+      (confirmed harmless so far) -- see `docs/context.md`. vkd3d-proton
+      (D3D12) remains deferred until a game actually needs it (Phase 2).
+
 ## Risks — confirmed, and new ones found along the way
 
 Original risks, both confirmed true in practice:

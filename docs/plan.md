@@ -393,15 +393,67 @@ by value-to-effort.
       machine as-is. Only matters once this needs to be usable beyond this
       one dev Mac (see Phase 3's original "on-disk layout" item, still
       skipped).
-- [ ] Add automated tests for the `lithium` CLI (`src/lithium`) -- zero
+      **Deliberately deferred, not just unstarted**: this solves a
+      different problem than the reproducible-build work above. Pinned
+      refs + `lithium build` already answer "can I get Lithium running on
+      another machine" -- yes, by re-running the full build there (needs
+      full Xcode, two Homebrew prefixes, ~10GB of source checkouts, and
+      real build time). A `dist/` package would instead let you *copy
+      already-compiled binaries* over, skipping the toolchain and rebuild
+      entirely -- only worth the cost if either (a) another machine of
+      yours needs Lithium without waiting through a full rebuild, or
+      (b) Lithium is ever handed to someone else who shouldn't need a C/C++
+      toolchain just to play a game. Neither applies right now, so this
+      stays on the backlog rather than getting built speculatively.
+- [x] Add automated tests for the `lithium` CLI (`src/lithium`) -- zero
       test coverage currently. Even basic tests (path resolution, env var
       construction, `doctor` logic) would catch regressions as the tool
       grows.
-- [ ] Lower priority / already tracked elsewhere: the cutscene
-      `msvproc`/GStreamer stride-alignment bug (cosmetic, one skippable
-      video) and the unimplemented XInput/Windows.Gaming.Input stubs
-      (confirmed harmless so far) -- see `docs/context.md`. vkd3d-proton
-      (D3D12) remains deferred until a game actually needs it (Phase 2).
+      **Done, kept deliberately basic** (11 tests, `tests/test_lithium.py`,
+      `pytest` added as a `[dependency-groups] dev` dep via `uv add
+      --dev pytest`). No real Wine/DXVK/MoltenVK build needed to run
+      them -- filesystem state is faked under `tmp_path` and
+      `subprocess.run` is monkeypatched, so they run in milliseconds.
+      Covers: `_dyld_wrapped_command`'s exact argv construction,
+      `prefix_path`, `require_wine_build`'s pass/fail paths, the env
+      dicts built by `lithium_wine_exec`/`lithium_winetricks_exec`
+      (including the `extra_dll_overrides` append path used by
+      `prefix-create`'s `mscoree=` override), `doctor`'s ready/incomplete
+      branches via Typer's `CliRunner`, and `prefix-create`/`prefix-kill`'s
+      already-exists/missing-prefix error paths. Confirmed the mocking is
+      properly isolated -- ran real `lithium doctor` immediately after the
+      full suite and got the actual, correct build status back, no state
+      leakage. One non-obvious gotcha hit along the way: `typer.echo(...,
+      err=True)` only shows up in Click's `CliRunner` via `result.output`,
+      not `result.stdout` (which came back empty for both error-path
+      tests until switched).
+      Deliberately not covered: the `build` command's actual clone/
+      configure/compile steps (`_build_wine`/`_build_moltenvk`/
+      `_build_dxvk`) -- these are thin wrappers around real, slow external
+      tools (git, xcodebuild, make, meson/ninja) where the actual bugs
+      found this session (`arch -x86_64` wrapping, path constant mix-ups)
+      only ever surfaced via genuine from-scratch rebuilds, not unit
+      tests with mocked subprocess calls. Worth revisiting if `build`
+      grows more internal branching logic worth protecting.
+- [ ] Prepare (not apply) a patch for the `winegstreamer` stride-alignment
+      bug, same `patches/` pattern as `dxvk-apple-silicon.patch` -- but
+      unlike that one, there's no already-working fix to capture yet, so
+      this means actually *writing* the fix first: pad into a 16-byte
+      -aligned intermediate buffer in `dlls/winegstreamer/main.c`'s
+      `wg_format_get_stride()` (or its caller) instead of deleting the
+      alignment check outright. See `project_lithium_gstreamer_video_bug`
+      in memory for the full root-cause writeup. **Note going in**: this
+      alone won't make Silksong's cutscene play -- a second, independent
+      platform gap (`VK_KHR_EXTERNAL_MEMORY_WIN32 not supported`, no macOS
+      equivalent to that Windows shared-GPU-memory mechanism) blocks it
+      regardless, confirmed by testing on a pre-regression Wine tag where
+      the stride bug is entirely absent. Worth having ready mainly for a
+      *future* game that hits the same non-16-aligned-video-width pattern
+      somewhere more central to its experience than a skippable intro.
+- [ ] Lower priority / already tracked elsewhere: the unimplemented
+      XInput/Windows.Gaming.Input stubs (confirmed harmless so far) -- see
+      `docs/context.md`. vkd3d-proton (D3D12) remains deferred until a
+      game actually needs it (Phase 2).
 
 ## Risks — confirmed, and new ones found along the way
 

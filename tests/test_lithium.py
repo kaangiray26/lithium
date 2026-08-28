@@ -1,0 +1,196 @@
+"""Basic test coverage for the lithium CLI (src/lithium).
+
+Covers pure helper functions, the env/command plumbing in
+lithium_wine_exec/lithium_winetricks_exec, and the doctor/prefix-create/
+prefix-kill commands -- all via mocked subprocess calls and a tmp_path
+filesystem, so no real Wine/DXVK/MoltenVK build is needed to run these.
+"""
+
+import os
+import stat
+
+import pytest
+from typer.testing import CliRunner
+
+import lithium
+
+runner = CliRunner()
+
+
+def make_executable(path):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"")
+    path.chmod(path.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+
+
+# --- pure helpers ---
+
+
+def test_dyld_wrapped_command():
+    result = lithium._dyld_wrapped_command("wine", "cmd", "/c", "echo hi")
+    assert result[:3] == ["arch", "-x86_64", "/usr/bin/env"]
+    assert result[3] == f"DYLD_FALLBACK_LIBRARY_PATH={lithium.DYLD_FALLBACK_LIBRARY_PATH_VALUE}"
+    assert result[4:] == ["wine", "cmd", "/c", "echo hi"]
+
+
+def test_prefix_path():
+    assert lithium.prefix_path("silksong") == lithium.PREFIXES_DIR / "silksong"
+
+
+def test_require_wine_build_missing(monkeypatch, tmp_path):
+    monkeypatch.setattr(lithium, "WINE_BIN", tmp_path / "does-not-exist")
+    with pytest.raises(lithium.typer.Exit):
+        lithium.require_wine_build()
+
+
+def test_require_wine_build_present(monkeypatch, tmp_path):
+    wine_bin = tmp_path / "wine"
+    make_executable(wine_bin)
+    monkeypatch.setattr(lithium, "WINE_BIN", wine_bin)
+    lithium.require_wine_build()  # should not raise
+
+
+# --- env/command construction ---
+
+
+def test_lithium_wine_exec_env_and_command(monkeypatch, tmp_path):
+    wine_bin = tmp_path / "wine"
+    make_executable(wine_bin)
+    monkeypatch.setattr(lithium, "WINE_BIN", wine_bin)
+
+    captured = {}
+
+    def fake_run(command, env=None):
+        captured["command"] = command
+        captured["env"] = env
+
+        class Result:
+            returncode = 0
+
+        return Result()
+
+    monkeypatch.setattr(lithium.subprocess, "run", fake_run)
+
+    prefix_dir = tmp_path / "prefixes" / "silksong"
+    rc = lithium.lithium_wine_exec(prefix_dir, "cmd", "/c", "echo hi", extra_dll_overrides="mscoree=")
+    assert rc == 0
+
+    # command should be wrapped via _dyld_wrapped_command, targeting our wine binary
+    assert captured["command"][:3] == ["arch", "-x86_64", "/usr/bin/env"]
+    assert str(wine_bin) in captured["command"]
+    assert "cmd" in captured["command"]
+
+    env = captured["env"]
+    assert env["WINEPREFIX"] == str(prefix_dir)
+    assert env["DXVK_CONFIG"] == lithium.DXVK_CONFIG_VALUE
+    assert env["WINEDLLOVERRIDES"] == f"{lithium.WINEDLLOVERRIDES_VALUE},mscoree="
+    assert env["GST_PLUGIN_PATH"] == lithium.GST_PLUGIN_PATH_VALUE
+
+
+def test_lithium_winetricks_exec_env(monkeypatch, tmp_path):
+    wine_bin = tmp_path / "wine"
+    wineserver_bin = tmp_path / "wineserver"
+    make_executable(wine_bin)
+    make_executable(wineserver_bin)
+    monkeypatch.setattr(lithium, "WINE_BIN", wine_bin)
+    monkeypatch.setattr(lithium, "WINESERVER_BIN", wineserver_bin)
+
+    captured = {}
+
+    def fake_run(command, env=None):
+        captured["command"] = command
+        captured["env"] = env
+
+        class Result:
+            returncode = 0
+
+        return Result()
+
+    monkeypatch.setattr(lithium.subprocess, "run", fake_run)
+
+    prefix_dir = tmp_path / "prefixes" / "silksong"
+    rc = lithium.lithium_winetricks_exec(prefix_dir, "vcrun2019")
+    assert rc == 0
+    assert captured["command"][:3] == ["arch", "-x86_64", "/usr/bin/env"]
+    assert "winetricks" in captured["command"]
+    assert "vcrun2019" in captured["command"]
+
+    env = captured["env"]
+    assert env["WINE"] == str(wine_bin)
+    assert env["WINESERVER"] == str(wineserver_bin)
+    assert env["WINEPREFIX"] == str(prefix_dir)
+
+
+# --- doctor ---
+
+
+def _setup_ready_stack(monkeypatch, tmp_path):
+    wine_bin = tmp_path / "build" / "wine" / "loader" / "wine"
+    make_executable(wine_bin)
+    monkeypatch.setattr(lithium, "WINE_BIN", wine_bin)
+
+    dxvk_build_dir = tmp_path / "build" / "dxvk" / "src"
+    for sub, dll in lithium.DXVK_DLLS:
+        dll_path = dxvk_build_dir / sub / dll
+        dll_path.parent.mkdir(parents=True, exist_ok=True)
+        dll_path.write_bytes(b"")
+    monkeypatch.setattr(lithium, "DXVK_BUILD_DIR", dxvk_build_dir)
+
+    moltenvk_dir = tmp_path / "external" / "MoltenVK"
+    (moltenvk_dir / "libMoltenVK.dylib").parent.mkdir(parents=True, exist_ok=True)
+    (moltenvk_dir / "libMoltenVK.dylib").write_bytes(b"")
+    monkeypatch.setattr(lithium, "MOLTENVK_DYLIB_DIR", moltenvk_dir)
+
+
+def test_doctor_ready(monkeypatch, tmp_path):
+    _setup_ready_stack(monkeypatch, tmp_path)
+    result = runner.invoke(lithium.app, ["doctor"])
+    assert result.exit_code == 0
+    assert "Status: ready" in result.stdout
+
+
+def test_doctor_incomplete_when_wine_missing(monkeypatch, tmp_path):
+    _setup_ready_stack(monkeypatch, tmp_path)
+    monkeypatch.setattr(lithium, "WINE_BIN", tmp_path / "nonexistent-wine")
+    result = runner.invoke(lithium.app, ["doctor"])
+    assert result.exit_code == 1
+    assert "Wine binary:          MISSING" in result.stdout
+    assert "Status: incomplete" in result.stdout
+
+
+def test_doctor_incomplete_when_dxvk_dll_missing(monkeypatch, tmp_path):
+    _setup_ready_stack(monkeypatch, tmp_path)
+    monkeypatch.setattr(lithium, "DXVK_BUILD_DIR", tmp_path / "empty-dxvk-dir")
+    result = runner.invoke(lithium.app, ["doctor"])
+    assert result.exit_code == 1
+    assert "Status: incomplete" in result.stdout
+
+
+# --- prefix-create / prefix-kill ---
+
+
+def test_prefix_create_fails_if_already_exists(monkeypatch, tmp_path):
+    wine_bin = tmp_path / "wine"
+    make_executable(wine_bin)
+    monkeypatch.setattr(lithium, "WINE_BIN", wine_bin)
+    monkeypatch.setattr(lithium, "PREFIXES_DIR", tmp_path / "prefixes")
+
+    existing = tmp_path / "prefixes" / "silksong"
+    existing.mkdir(parents=True)
+
+    result = runner.invoke(lithium.app, ["prefix-create", "silksong"])
+    assert result.exit_code == 1
+    # typer.echo(..., err=True) goes to stderr, which CliRunner only
+    # surfaces via .output, not .stdout
+    assert "already exists" in result.output
+
+
+def test_prefix_kill_fails_if_missing(monkeypatch, tmp_path):
+    wine_bin = tmp_path / "wine"
+    make_executable(wine_bin)
+    monkeypatch.setattr(lithium, "WINE_BIN", wine_bin)
+    monkeypatch.setattr(lithium, "PREFIXES_DIR", tmp_path / "prefixes")
+
+    result = runner.invoke(lithium.app, ["prefix-kill", "does-not-exist"])
+    assert result.exit_code == 1
+    assert "no such prefix" in result.output

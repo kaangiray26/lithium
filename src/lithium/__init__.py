@@ -464,6 +464,30 @@ def doctor() -> None:
         raise typer.Exit(1)
 
 
+@app.command("prefix-list")
+def prefix_list() -> None:
+    """List existing Wine prefixes."""
+    console = Console()
+
+    if not PREFIXES_DIR.is_dir() or not any(PREFIXES_DIR.iterdir()):
+        console.print("No prefixes found.")
+        return
+
+    table = Table(box=None, pad_edge=False)
+    table.add_column("Prefix")
+    table.add_column("Initialized")
+    table.add_column("Path")
+
+    for prefix_dir in sorted(p for p in PREFIXES_DIR.iterdir() if p.is_dir()):
+        # A prefix is "initialized" once wineboot has actually run against
+        # it (prefix-create's first step) -- drive_c only exists after that.
+        initialized = (prefix_dir / "drive_c").is_dir()
+        init_cell = "[green]yes[/green]" if initialized else "[yellow]no[/yellow]"
+        table.add_row(prefix_dir.name, init_cell, str(prefix_dir))
+
+    console.print(table)
+
+
 @app.command("prefix-create")
 def prefix_create(name: str = typer.Argument(..., help="Name of the prefix to create")) -> None:
     """Create and initialize a new Wine prefix."""

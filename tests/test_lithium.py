@@ -309,6 +309,30 @@ def test_ps_command_lists_idle_prefix(monkeypatch, tmp_path):
     assert "silksong" in result.stdout
 
 
+# --- prefix-list ---
+
+
+def test_prefix_list_no_prefixes(monkeypatch, tmp_path):
+    monkeypatch.setattr(lithium, "PREFIXES_DIR", tmp_path / "no-such-dir")
+    result = runner.invoke(lithium.app, ["prefix-list"])
+    assert result.exit_code == 0
+    assert "No prefixes found" in result.stdout
+
+
+def test_prefix_list_shows_initialized_and_uninitialized(monkeypatch, tmp_path):
+    prefixes_dir = tmp_path / "prefixes"
+    (prefixes_dir / "ready" / "drive_c").mkdir(parents=True)
+    (prefixes_dir / "half-created").mkdir(parents=True)
+    monkeypatch.setattr(lithium, "PREFIXES_DIR", prefixes_dir)
+
+    result = runner.invoke(lithium.app, ["prefix-list"])
+    assert result.exit_code == 0
+    assert "ready" in result.stdout
+    assert "yes" in result.stdout
+    assert "half-created" in result.stdout
+    assert "no" in result.stdout
+
+
 # --- prefix-create / prefix-kill ---
 
 

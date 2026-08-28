@@ -535,8 +535,18 @@ Visibility / debugging:
       tests total, all passing.
 
 Prefix lifecycle:
-- [ ] `lithium prefix-list` -- no way to see what prefixes exist without
+- [x] `lithium prefix-list` -- no way to see what prefixes exist without
       `ls prefixes/`.
+      **Done.** Same `rich` table style as `doctor`/`ps`. Columns:
+      `Prefix`, `Initialized` (yes/no based on whether `drive_c` exists --
+      catches a `prefix-create` that failed partway through, e.g. a
+      `wineboot --init` failure, rather than just showing an
+      indistinguishable empty directory), `Path` (full absolute path,
+      handy for copy-pasting elsewhere). Deliberately kept separate from
+      `ps` rather than merged into it -- different question (\"what
+      prefixes exist\" vs \"what's currently running\"), and `prefix-list`
+      stays fast/side-effect-free with no `ps`/`lsof` shellouts needed.
+      Added 2 tests -- 23 total, all passing.
 - [ ] `lithium prefix-remove <name>` -- deleting one currently means
       `rm -rf` by hand.
 - [ ] Fold dependency install into creation, e.g.

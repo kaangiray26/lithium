@@ -455,6 +455,88 @@ by value-to-effort.
       `docs/context.md`. vkd3d-proton (D3D12) remains deferred until a
       game actually needs it (Phase 2).
 
+## Phase 8 — CLI improvement ideas (brainstorm, not yet decided)
+
+Ideas for `src/lithium` raised while reviewing the CLI, grounded in actual
+pain points hit during this project rather than speculative features.
+None of these are committed to yet -- pick items up individually when
+there's a concrete reason to.
+
+Visibility / debugging:
+- [x] `doctor` reports files exist but not what they *are* -- surface the
+      pinned Wine tag, MoltenVK ref, and DXVK/Proton ref actually built
+      (now that these are tracked constants, see Phase 7) instead of
+      requiring a dig through `build/wine/config.log`.
+      **Done.** Added `_git_describe()` (runs `git describe --tags
+      --always` against a source checkout) and `_dxvk_version()` (reads
+      the `DXVK_VERSION` string from DXVK's meson-generated `version.h` --
+      ground truth from the actual compiled artifact, not just the
+      submodule's current checkout state). `doctor` now prints a `Wine
+      ref:`/`MoltenVK ref:`/`DXVK version:` line under each corresponding
+      binary check, e.g. `wine-11.16`, `v1.4.2`, `v2.7.1-498-ga6764047+`.
+      Deliberately informational only (doesn't affect the ready/incomplete
+      `ok` flag) and degrades to `unknown (...)` rather than erroring if a
+      source tree isn't a git checkout at all. Caveat noted in the
+      `_git_describe` docstring: the Wine/MoltenVK lines reflect what
+      *source* is checked out, not a guarantee `build/wine` was actually
+      rebuilt since -- `lithium build` keeps these in sync, but a
+      manually-edited checkout could drift; DXVK's line doesn't have this
+      caveat since it reads the build artifact directly. Added 4 new
+      tests (`tests/test_lithium.py`) for the two helpers plus updated the
+      existing `doctor` test fixture, which wasn't isolating
+      `WINE_SRC`/`MOLTENVK_SRC`/`DXVK_MESON_BUILD_DIR` and would otherwise
+      have reached into the real `external/`/`build/dxvk` on disk instead
+      of the fake `tmp_path` stack -- 15 tests total, all passing.
+      **Follow-up: reworked the output as a real table.** Originally
+      plain `typer.echo()` lines with manual `.ljust()` padding; switched
+      to `rich` (`Table(box=None, ...)`, a `Component`/`Status`/`Detail`
+      layout, added as a real project dependency, not dev-only, since
+      `doctor` is user-facing). Considered `rich.columns.Columns` first
+      (what was originally asked about) but that's built for tiling many
+      same-shaped short items across width, like `ls` output -- not
+      aligned label/value pairs, which is what `doctor` actually is,
+      so `Table` was the better fit. `OK`/`MISSING` are colored
+      green/red, the final `Status` line is bold green/red. Folded the
+      separate `Wine ref`/`MoltenVK ref` lines into the `Detail` column
+      of their respective binary/dylib row instead of separate rows.
+      One real gotcha hit updating the tests for this: Rich truncates
+      long `Detail` values (e.g. `tmp_path`-based MISSING paths in the
+      test fixtures) to fit the table to console width, so exact-substring
+      assertions on full paths silently broke -- fixed by asserting on
+      short, guaranteed-untruncated substrings instead (component names,
+      `OK`/`MISSING`, the `unknown (...)` fallback strings) rather than
+      full row text.
+- [ ] `--debug=<channels>` flag on `run` to set `WINEDEBUG` -- every
+      debugging session so far has meant hand-crafting
+      `WINEDEBUG=+something` outside the CLI.
+- [ ] `lithium ps`/`lithium status` -- show which prefixes currently have
+      a live `wineserver`/game process. Lingering-wineserver confusion has
+      come up a few times; the only current check is `ps aux | grep wine`.
+
+Prefix lifecycle:
+- [ ] `lithium prefix-list` -- no way to see what prefixes exist without
+      `ls prefixes/`.
+- [ ] `lithium prefix-remove <name>` -- deleting one currently means
+      `rm -rf` by hand.
+- [ ] Fold dependency install into creation, e.g.
+      `lithium prefix-create <name> --with vcrun2019,dotnet48`, instead of
+      the two separate manual steps the README currently documents.
+
+Build ergonomics:
+- [ ] `--quiet` flag for `build` -- output right now is the raw
+      `make`/`ninja`/`xcodebuild` firehose between the `==>` phase
+      markers; showing only phase transitions would be much more
+      pleasant to watch for something that already takes real time.
+- [ ] `lithium clean` (or `build --force`) to deliberately wipe
+      `build/wine`/`build/dxvk` and force a real rebuild, rather than the
+      manual `rm -rf` used a few times this session for reproducibility
+      testing.
+
+Safety / correctness:
+- [ ] Preflight checks on `run`/`install` -- a typo'd exe path currently
+      fails deep inside Wine with a confusing error; checking the path
+      exists first and failing fast would be a small, cheap win.
+
 ## Risks — confirmed, and new ones found along the way
 
 Original risks, both confirmed true in practice:

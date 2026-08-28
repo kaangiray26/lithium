@@ -6,8 +6,8 @@ prefix-kill commands -- all via mocked subprocess calls and a tmp_path
 filesystem, so no real Wine/DXVK/MoltenVK build is needed to run these.
 """
 
-import os
 import stat
+import subprocess
 
 import pytest
 from typer.testing import CliRunner
@@ -121,6 +121,41 @@ def test_lithium_winetricks_exec_env(monkeypatch, tmp_path):
     assert env["WINEPREFIX"] == str(prefix_dir)
 
 
+# --- version-reporting helpers ---
+
+
+def test_git_describe_none_for_non_git_dir(tmp_path):
+    assert lithium._git_describe(tmp_path / "not-a-repo") is None
+
+
+def test_git_describe_reports_tag(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    def run(*args):
+        subprocess.run(args, cwd=repo, check=True, capture_output=True)
+
+    run("git", "init", "-q")
+    run("git", "config", "user.email", "test@example.com")
+    run("git", "config", "user.name", "test")
+    run("git", "commit", "--allow-empty", "-q", "-m", "init")
+    run("git", "tag", "v9.9.9")
+    assert lithium._git_describe(repo) == "v9.9.9"
+
+
+def test_dxvk_version_none_when_missing(monkeypatch, tmp_path):
+    monkeypatch.setattr(lithium, "DXVK_MESON_BUILD_DIR", tmp_path / "no-dxvk-build")
+    assert lithium._dxvk_version() is None
+
+
+def test_dxvk_version_reads_generated_header(monkeypatch, tmp_path):
+    build_dir = tmp_path / "dxvk-build"
+    build_dir.mkdir()
+    (build_dir / "version.h").write_text('#pragma once\n\n#define DXVK_VERSION "v9.9.9-1-gabc123"\n')
+    monkeypatch.setattr(lithium, "DXVK_MESON_BUILD_DIR", build_dir)
+    assert lithium._dxvk_version() == "v9.9.9-1-gabc123"
+
+
 # --- doctor ---
 
 
@@ -128,6 +163,11 @@ def _setup_ready_stack(monkeypatch, tmp_path):
     wine_bin = tmp_path / "build" / "wine" / "loader" / "wine"
     make_executable(wine_bin)
     monkeypatch.setattr(lithium, "WINE_BIN", wine_bin)
+    # non-git dirs by default -- keeps version-reporting isolated too, see
+    # the dedicated _git_describe/_dxvk_version tests above for that logic
+    monkeypatch.setattr(lithium, "WINE_SRC", tmp_path / "external" / "wine")
+    monkeypatch.setattr(lithium, "MOLTENVK_SRC", tmp_path / "external" / "MoltenVK-src")
+    monkeypatch.setattr(lithium, "DXVK_MESON_BUILD_DIR", tmp_path / "build" / "dxvk")
 
     dxvk_build_dir = tmp_path / "build" / "dxvk" / "src"
     for sub, dll in lithium.DXVK_DLLS:
@@ -147,6 +187,14 @@ def test_doctor_ready(monkeypatch, tmp_path):
     result = runner.invoke(lithium.app, ["doctor"])
     assert result.exit_code == 0
     assert "Status: ready" in result.stdout
+    # source trees aren't real git checkouts in this fake stack, so these
+    # report "unknown" rather than crashing -- that's the expected fallback.
+    # Checked as short standalone substrings, not full table rows, since
+    # Rich truncates long Detail-column values (e.g. tmp_path-based
+    # MISSING paths) to fit the table to console width.
+    assert "unknown (external/wine not found)" in result.stdout
+    assert "unknown (external/MoltenVK not found)" in result.stdout
+    assert "unknown (not built)" in result.stdout
 
 
 def test_doctor_incomplete_when_wine_missing(monkeypatch, tmp_path):
@@ -154,7 +202,8 @@ def test_doctor_incomplete_when_wine_missing(monkeypatch, tmp_path):
     monkeypatch.setattr(lithium, "WINE_BIN", tmp_path / "nonexistent-wine")
     result = runner.invoke(lithium.app, ["doctor"])
     assert result.exit_code == 1
-    assert "Wine binary:          MISSING" in result.stdout
+    assert "Wine binary" in result.stdout
+    assert "MISSING" in result.stdout
     assert "Status: incomplete" in result.stdout
 
 

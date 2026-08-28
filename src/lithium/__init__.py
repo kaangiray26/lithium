@@ -8,12 +8,15 @@ below if you relocate things.
 
 import os
 import platform
+import re
 import shutil
 import subprocess
 from pathlib import Path
 from typing import Optional
 
 import typer
+from rich.console import Console
+from rich.table import Table
 
 app = typer.Typer(
     no_args_is_help=True,
@@ -175,6 +178,38 @@ def _run(command: list[str], *, cwd: Optional[Path] = None, env: Optional[dict] 
     proc = subprocess.run(command, cwd=cwd, env=env)
     if proc.returncode != 0:
         raise typer.Exit(proc.returncode)
+
+
+def _git_describe(repo_dir: Path) -> Optional[str]:
+    """Best-effort `git describe --tags` on a source checkout.
+
+    Reports what source is checked out, not a guarantee the compiled
+    binary was actually rebuilt since -- `lithium build` keeps these in
+    sync, but a manually-edited checkout could drift. Returns None if the
+    directory isn't a git repo at all (e.g. never built).
+    """
+    if not (repo_dir / ".git").exists():
+        return None
+    proc = subprocess.run(
+        ["git", "-C", str(repo_dir), "describe", "--tags", "--always"],
+        capture_output=True,
+        text=True,
+    )
+    return proc.stdout.strip() if proc.returncode == 0 else None
+
+
+def _dxvk_version() -> Optional[str]:
+    """Read the git-describe-derived version DXVK actually compiled with.
+
+    Ground truth from the build artifact itself (meson generates this
+    file from `git describe` at build time), not just the dxvk
+    submodule's current checkout state.
+    """
+    version_header = DXVK_MESON_BUILD_DIR / "version.h"
+    if not version_header.is_file():
+        return None
+    match = re.search(r'DXVK_VERSION\s+"([^"]+)"', version_header.read_text())
+    return match.group(1) if match else None
 
 
 def _build_sanity_checks() -> None:
@@ -379,41 +414,53 @@ def build() -> None:
 def doctor() -> None:
     """Check that the toolchain/build is in place."""
     ok = True
+    console = Console()
 
-    typer.echo(f"Lithium root:        {LITHIUM_ROOT}")
+    console.print(f"Lithium root: {LITHIUM_ROOT}")
 
-    if os.access(WINE_BIN, os.X_OK):
-        typer.echo(f"Wine binary:          OK ({WINE_BIN})")
-    else:
-        typer.echo(f"Wine binary:          MISSING ({WINE_BIN})")
-        ok = False
+    table = Table(box=None, pad_edge=False)
+    table.add_column("Component")
+    table.add_column("Status")
+    table.add_column("Detail")
+
+    def status_cell(is_ok: bool, ok_text: str = "OK", missing_text: str = "MISSING") -> str:
+        return f"[green]{ok_text}[/green]" if is_ok else f"[red]{missing_text}[/red]"
+
+    wine_ok = os.access(WINE_BIN, os.X_OK)
+    wine_detail = (_git_describe(WINE_SRC) or "unknown (external/wine not found)") if wine_ok else str(WINE_BIN)
+    table.add_row("Wine binary", status_cell(wine_ok), wine_detail)
+    ok = ok and wine_ok
 
     for sub, dll in DXVK_DLLS:
         path = DXVK_BUILD_DIR / sub / dll
-        label = f"DXVK {dll}:".ljust(20)
-        if path.is_file():
-            typer.echo(f"{label} OK")
-        else:
-            typer.echo(f"{label} MISSING ({path})")
-            ok = False
+        dll_ok = path.is_file()
+        table.add_row(f"DXVK {dll}", status_cell(dll_ok), "" if dll_ok else str(path))
+        ok = ok and dll_ok
+    table.add_row("DXVK version", "[dim]--[/dim]", _dxvk_version() or "unknown (not built)")
 
     moltenvk_dylib = MOLTENVK_DYLIB_DIR / "libMoltenVK.dylib"
-    if moltenvk_dylib.is_file():
-        typer.echo(f"MoltenVK dylib:       OK ({moltenvk_dylib})")
-    else:
-        typer.echo(f"MoltenVK dylib:       MISSING ({moltenvk_dylib})")
-        ok = False
+    moltenvk_ok = moltenvk_dylib.is_file()
+    moltenvk_detail = (
+        (_git_describe(MOLTENVK_SRC) or "unknown (external/MoltenVK not found)")
+        if moltenvk_ok
+        else str(moltenvk_dylib)
+    )
+    table.add_row("MoltenVK dylib", status_cell(moltenvk_ok), moltenvk_detail)
+    ok = ok and moltenvk_ok
 
     winetricks_bin = shutil.which("winetricks")
-    if winetricks_bin:
-        typer.echo(f"winetricks:           OK ({winetricks_bin})")
-    else:
-        typer.echo("winetricks:           MISSING (optional -- `brew install winetricks` for the 'winetricks' command)")
+    table.add_row(
+        "winetricks",
+        status_cell(bool(winetricks_bin), missing_text="MISSING (optional)"),
+        winetricks_bin or "`brew install winetricks` for the 'winetricks' command",
+    )
+
+    console.print(table)
 
     if ok:
-        typer.echo("Status: ready")
+        console.print("[bold green]Status: ready[/bold green]")
     else:
-        typer.echo("Status: incomplete -- see docs/plan.md")
+        console.print("[bold red]Status: incomplete[/bold red] -- see docs/plan.md")
         raise typer.Exit(1)
 
 

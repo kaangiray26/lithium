@@ -215,6 +215,100 @@ def test_doctor_incomplete_when_dxvk_dll_missing(monkeypatch, tmp_path):
     assert "Status: incomplete" in result.stdout
 
 
+# --- ps ---
+
+
+def test_wineserver_pids_matches_exact_command(monkeypatch, tmp_path):
+    wineserver_bin = tmp_path / "wineserver"
+    monkeypatch.setattr(lithium, "WINESERVER_BIN", wineserver_bin)
+
+    def fake_run(command, capture_output=None, text=None):
+        class Result:
+            stdout = (
+                f"111 {wineserver_bin}\n"
+                f"222 {wineserver_bin} --extra-arg\n"  # not an exact match, ignored
+                "333 /usr/bin/unrelated\n"
+            )
+
+        return Result()
+
+    monkeypatch.setattr(lithium.subprocess, "run", fake_run)
+    assert lithium._wineserver_pids() == [111]
+
+
+def test_wineserver_prefix_matches_open_directory(monkeypatch, tmp_path):
+    prefixes_dir = tmp_path / "prefixes"
+    (prefixes_dir / "silksong").mkdir(parents=True)
+    (prefixes_dir / "other").mkdir(parents=True)
+    monkeypatch.setattr(lithium, "PREFIXES_DIR", prefixes_dir)
+
+    def fake_run(command, capture_output=None, text=None):
+        class Result:
+            returncode = 0
+            stdout = f"wineserve 111 user 4r DIR ... {prefixes_dir / 'silksong'}\n"
+
+        return Result()
+
+    monkeypatch.setattr(lithium.subprocess, "run", fake_run)
+    assert lithium._wineserver_prefix(111) == "silksong"
+
+
+def test_running_exe_ignores_windows_style_paths(monkeypatch, tmp_path):
+    prefix_dir = tmp_path / "prefixes" / "silksong"
+    prefix_dir.mkdir(parents=True)
+    game_exe = prefix_dir / "drive_c" / "Games" / "Silksong.exe"
+
+    def fake_run(command, capture_output=None, text=None):
+        class Result:
+            stdout = (
+                "111 C:\\windows\\system32\\winedevice.exe\n"  # wine-internal, ignored
+                f"222 {game_exe}\n"
+            )
+
+        return Result()
+
+    monkeypatch.setattr(lithium.subprocess, "run", fake_run)
+    assert lithium._running_exe(prefix_dir) == ("Silksong.exe", 222)
+
+
+def test_running_exe_none_when_idle(monkeypatch, tmp_path):
+    prefix_dir = tmp_path / "prefixes" / "silksong"
+    prefix_dir.mkdir(parents=True)
+
+    def fake_run(command, capture_output=None, text=None):
+        class Result:
+            stdout = "111 C:\\windows\\system32\\winedevice.exe\n"
+
+        return Result()
+
+    monkeypatch.setattr(lithium.subprocess, "run", fake_run)
+    assert lithium._running_exe(prefix_dir) is None
+
+
+def test_ps_command_no_prefixes(monkeypatch, tmp_path):
+    monkeypatch.setattr(lithium, "PREFIXES_DIR", tmp_path / "no-such-dir")
+    result = runner.invoke(lithium.app, ["ps"])
+    assert result.exit_code == 0
+    assert "No prefixes found" in result.stdout
+
+
+def test_ps_command_lists_idle_prefix(monkeypatch, tmp_path):
+    prefixes_dir = tmp_path / "prefixes"
+    (prefixes_dir / "silksong").mkdir(parents=True)
+    monkeypatch.setattr(lithium, "PREFIXES_DIR", prefixes_dir)
+
+    def fake_run(command, capture_output=None, text=None):
+        class Result:
+            stdout = ""  # nothing running at all
+
+        return Result()
+
+    monkeypatch.setattr(lithium.subprocess, "run", fake_run)
+    result = runner.invoke(lithium.app, ["ps"])
+    assert result.exit_code == 0
+    assert "silksong" in result.stdout
+
+
 # --- prefix-create / prefix-kill ---
 
 

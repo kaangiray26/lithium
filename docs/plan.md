@@ -509,9 +509,30 @@ Visibility / debugging:
 - [ ] `--debug=<channels>` flag on `run` to set `WINEDEBUG` -- every
       debugging session so far has meant hand-crafting
       `WINEDEBUG=+something` outside the CLI.
-- [ ] `lithium ps`/`lithium status` -- show which prefixes currently have
+- [x] `lithium ps`/`lithium status` -- show which prefixes currently have
       a live `wineserver`/game process. Lingering-wineserver confusion has
       come up a few times; the only current check is `ps aux | grep wine`.
+      **Done, as `lithium ps`.** Verified the linking mechanism
+      empirically (`lsof -p <wineserver-pid>`) before implementing rather
+      than assuming: `wineserver` keeps an open directory handle on its
+      `WINEPREFIX` root for its entire lifetime (visible as a `DIR`-type
+      FD in `lsof`), which reliably maps a running `wineserver` PID back
+      to its prefix even with multiple prefixes' wineservers running
+      concurrently. Also found that the real game `.exe` Wine `execve()`s
+      shows up in `ps` under its actual Unix filesystem path
+      (`prefixes/<name>/drive_c/...`), while Wine's own internal helper
+      processes (`winedevice.exe`, `rundll32.exe`, ...) show up under
+      their Windows-style path (`C:\windows\...`) instead -- so matching
+      `ps` output against each prefix's real path only catches the actual
+      game, not Wine's internal plumbing, without any extra filtering
+      logic needed. Output is a `rich` table (`Prefix` / `wineserver` /
+      `Running exe`), same style as the reworked `doctor`. Verified for
+      real against a live game launch, not just mocked: idle state shows
+      `-`/`-`, launching Silksong showed the live wineserver PID and
+      `Hollow Knight Silksong.exe (PID ...)`, and `prefix-kill` correctly
+      brought it back to idle within a few seconds. Added 6 new tests
+      (mocking `subprocess.run` for both the `ps` and `lsof` calls) -- 21
+      tests total, all passing.
 
 Prefix lifecycle:
 - [ ] `lithium prefix-list` -- no way to see what prefixes exist without

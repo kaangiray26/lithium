@@ -506,6 +506,93 @@ def prefix_kill(name: str = typer.Argument(..., help="Name of the prefix to shut
     raise typer.Exit(returncode)
 
 
+def _ps_lines() -> list[str]:
+    """Raw `ps -eo pid=,args=` output, one process per line, no header."""
+    proc = subprocess.run(["ps", "-eo", "pid=,args="], capture_output=True, text=True)
+    return proc.stdout.splitlines()
+
+
+def _wineserver_pids() -> list[int]:
+    """PIDs of currently-running wineserver processes launched by Lithium."""
+    pids = []
+    for line in _ps_lines():
+        pid_str, _, args = line.strip().partition(" ")
+        if args.strip() == str(WINESERVER_BIN):
+            pids.append(int(pid_str))
+    return pids
+
+
+def _wineserver_prefix(pid: int) -> Optional[str]:
+    """Which prefix a running wineserver PID belongs to, if any.
+
+    wineserver keeps an open directory handle on its WINEPREFIX root for
+    its entire lifetime -- confirmed empirically via `lsof -p <pid>`.
+    Checked by exact-path substring match against known prefixes rather
+    than parsing lsof's columnar output, since that's simpler and just as
+    reliable for this purpose.
+    """
+    proc = subprocess.run(["lsof", "-p", str(pid)], capture_output=True, text=True)
+    if proc.returncode != 0 or not PREFIXES_DIR.is_dir():
+        return None
+    for prefix_dir in PREFIXES_DIR.iterdir():
+        if prefix_dir.is_dir() and str(prefix_dir) in proc.stdout:
+            return prefix_dir.name
+    return None
+
+
+def _running_exe(prefix_dir: Path) -> Optional[tuple[str, int]]:
+    """The first real Windows .exe currently running under a prefix, if any.
+
+    Wine's own internal helper processes (winedevice.exe, rundll32.exe,
+    ...) show up in `ps` under their Windows-style path (`C:\\windows\\...`),
+    but the actual game .exe Wine execve()s shows up under its real Unix
+    filesystem path -- confirmed empirically. So matching on "does the ps
+    command start with this prefix's real path" only catches the game
+    itself, not Wine's internal plumbing, which is exactly what we want.
+    """
+    prefix_str = str(prefix_dir) + os.sep
+    for line in _ps_lines():
+        pid_str, _, args = line.strip().partition(" ")
+        args = args.strip()
+        if args.startswith(prefix_str) and args.lower().endswith(".exe"):
+            return Path(args).name, int(pid_str)
+    return None
+
+
+@app.command()
+def ps() -> None:
+    """Show which prefixes currently have a live wineserver/game process."""
+    console = Console()
+
+    if not PREFIXES_DIR.is_dir() or not any(PREFIXES_DIR.iterdir()):
+        console.print("No prefixes found.")
+        return
+
+    prefix_by_wineserver = {}
+    for pid in _wineserver_pids():
+        name = _wineserver_prefix(pid)
+        if name:
+            prefix_by_wineserver[name] = pid
+
+    table = Table(box=None, pad_edge=False)
+    table.add_column("Prefix")
+    table.add_column("wineserver")
+    table.add_column("Running exe")
+
+    for prefix_dir in sorted(PREFIXES_DIR.iterdir()):
+        if not prefix_dir.is_dir():
+            continue
+        ws_pid = prefix_by_wineserver.get(prefix_dir.name)
+        ws_cell = f"[green]PID {ws_pid}[/green]" if ws_pid else "[dim]-[/dim]"
+
+        exe = _running_exe(prefix_dir)
+        exe_cell = f"[green]{exe[0]} (PID {exe[1]})[/green]" if exe else "[dim]-[/dim]"
+
+        table.add_row(prefix_dir.name, ws_cell, exe_cell)
+
+    console.print(table)
+
+
 @app.command(context_settings={"ignore_unknown_options": True})
 def winetricks(
     name: str = typer.Argument(..., help="Name of the prefix to install into"),

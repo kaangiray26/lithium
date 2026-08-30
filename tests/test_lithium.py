@@ -156,6 +156,54 @@ def test_dxvk_version_reads_generated_header(monkeypatch, tmp_path):
     assert lithium._dxvk_version() == "v9.9.9-1-gabc123"
 
 
+# --- clean ---
+
+
+def test_clean_nothing_to_clean(monkeypatch, tmp_path):
+    monkeypatch.setattr(lithium, "WINE_BUILD_DIR", tmp_path / "build" / "wine")
+    monkeypatch.setattr(lithium, "DXVK_MESON_BUILD_DIR", tmp_path / "build" / "dxvk")
+    result = runner.invoke(lithium.app, ["clean"])
+    assert result.exit_code == 0
+    assert "Nothing to clean" in result.output
+
+
+def test_clean_removes_build_dirs_with_force(monkeypatch, tmp_path):
+    wine_build = tmp_path / "build" / "wine"
+    dxvk_build = tmp_path / "build" / "dxvk"
+    (wine_build / "loader").mkdir(parents=True)
+    (dxvk_build / "src").mkdir(parents=True)
+    monkeypatch.setattr(lithium, "WINE_BUILD_DIR", wine_build)
+    monkeypatch.setattr(lithium, "DXVK_MESON_BUILD_DIR", dxvk_build)
+
+    result = runner.invoke(lithium.app, ["clean", "--force"])
+    assert result.exit_code == 0
+    assert not wine_build.exists()
+    assert not dxvk_build.exists()
+
+
+def test_clean_aborts_without_confirmation(monkeypatch, tmp_path):
+    wine_build = tmp_path / "build" / "wine"
+    wine_build.mkdir(parents=True)
+    monkeypatch.setattr(lithium, "WINE_BUILD_DIR", wine_build)
+    monkeypatch.setattr(lithium, "DXVK_MESON_BUILD_DIR", tmp_path / "build" / "dxvk")
+
+    result = runner.invoke(lithium.app, ["clean"], input="n\n")
+    assert result.exit_code != 0
+    assert wine_build.exists()
+
+
+def test_clean_moltenvk_flag_includes_package_dir(monkeypatch, tmp_path):
+    package_dir = tmp_path / "external" / "MoltenVK" / "Package"
+    package_dir.mkdir(parents=True)
+    monkeypatch.setattr(lithium, "WINE_BUILD_DIR", tmp_path / "build" / "wine")
+    monkeypatch.setattr(lithium, "DXVK_MESON_BUILD_DIR", tmp_path / "build" / "dxvk")
+    monkeypatch.setattr(lithium, "MOLTENVK_PACKAGE_DIR", package_dir)
+
+    result = runner.invoke(lithium.app, ["clean", "--moltenvk", "--force"])
+    assert result.exit_code == 0
+    assert not package_dir.exists()
+
+
 # --- doctor ---
 
 

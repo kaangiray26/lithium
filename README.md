@@ -36,6 +36,14 @@ second x86_64 Homebrew prefix at `/usr/local` for runtime deps), clones
 and builds MoltenVK and WineHQ Wine, and builds DXVK with the Apple
 Silicon patches applied. It's safe to re-run — already-built pieces are
 skipped. See `docs/plan.md` Phases 0-2 for the rationale behind each step.
+
+To force a real from-scratch rebuild (e.g. after moving the source
+trees), wipe the build output first:
+
+```
+uv run lithium clean        # wipes build/wine and build/dxvk
+uv run lithium clean --moltenvk   # also wipes external/MoltenVK/Package
+```
 Run `lithium doctor` to check whether the stack is already in place:
 
 ```

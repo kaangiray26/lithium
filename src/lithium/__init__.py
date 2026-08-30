@@ -97,6 +97,11 @@ DXVK_SRC = PROTON_SRC / "dxvk"  # pinned via PROTON_REF's recorded submodule com
 DXVK_PATCH = LITHIUM_ROOT / "patches" / "dxvk-apple-silicon.patch"
 BISON_PATH = "/opt/homebrew/opt/bison/bin"
 
+# MoltenVK's built output (the dylib/headers `lithium build` consumes).
+# Wiped only by `lithium clean --moltenvk` -- it's the slowest piece to
+# rebuild and rarely the thing that needs refreshing.
+MOLTENVK_PACKAGE_DIR = MOLTENVK_SRC / "Package"
+
 
 def require_wine_build() -> None:
     if not os.access(WINE_BIN, os.X_OK):
@@ -408,6 +413,43 @@ def build() -> None:
     _build_wine()
     _build_dxvk()
     _log("Done. Verify with: lithium doctor")
+
+
+@app.command()
+def clean(
+    moltenvk: bool = typer.Option(
+        False, "--moltenvk", help="Also wipe MoltenVK's built Package/ output (slowest to rebuild)"
+    ),
+    force: bool = typer.Option(False, "--force", "-f", help="Skip the confirmation prompt"),
+) -> None:
+    """Wipe build output so the next `lithium build` is a real from-scratch rebuild.
+
+    Removes build/wine and build/dxvk. Autotools' Makefile and meson's
+    build.ninja both bake in absolute source paths, so an incremental
+    rebuild after the source tree moves silently breaks -- wiping forces a
+    clean reconfigure. MoltenVK's Package/ output is left alone unless
+    --moltenvk is passed.
+    """
+    targets = [WINE_BUILD_DIR, DXVK_MESON_BUILD_DIR]
+    if moltenvk:
+        targets.append(MOLTENVK_PACKAGE_DIR)
+
+    existing = [t for t in targets if t.exists()]
+    if not existing:
+        typer.echo("Nothing to clean.")
+        return
+
+    typer.echo("Will remove:")
+    for target in existing:
+        typer.echo(f"  {target}")
+    if not force:
+        typer.confirm("Proceed?", abort=True)
+
+    for target in existing:
+        shutil.rmtree(target)
+        typer.echo(f"Removed {target}")
+
+    typer.echo("Done. Run 'lithium build' to rebuild.")
 
 
 @app.command()

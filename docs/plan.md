@@ -573,10 +573,23 @@ Build ergonomics:
       `make`/`ninja`/`xcodebuild` firehose between the `==>` phase
       markers; showing only phase transitions would be much more
       pleasant to watch for something that already takes real time.
-- [ ] `lithium clean` (or `build --force`) to deliberately wipe
+- [x] `lithium clean` (or `build --force`) to deliberately wipe
       `build/wine`/`build/dxvk` and force a real rebuild, rather than the
       manual `rm -rf` used a few times this session for reproducibility
       testing.
+      **Done, as `lithium clean`** (dedicated command rather than a
+      `build --force` flag -- composes cleanly as `lithium clean &&
+      lithium build`, and keeps `build`'s arg surface unchanged). Wipes
+      `build/wine` and `build/dxvk` by default (the two dirs whose
+      autotools `Makefile` / meson `build.ninja` bake in absolute source
+      paths, so a stale incremental rebuild after a source-tree move
+      silently breaks -- the exact reproducibility-testing footgun this
+      item came from). `--moltenvk` also wipes `external/MoltenVK/Package`
+      (left out of the default since it's the slowest piece to rebuild and
+      rarely the one that needs refreshing). Confirmation prompt before
+      deleting, `--force`/`-f` to skip -- same pattern as `prefix-remove`.
+      No-ops with "Nothing to clean." when the dirs are already gone.
+      Added 4 tests -- 31 total, all passing.
 
 Safety / correctness:
 - [ ] Preflight checks on `run`/`install` -- a typo'd exe path currently

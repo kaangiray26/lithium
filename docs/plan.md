@@ -547,8 +547,23 @@ Prefix lifecycle:
       prefixes exist\" vs \"what's currently running\"), and `prefix-list`
       stays fast/side-effect-free with no `ps`/`lsof` shellouts needed.
       Added 2 tests -- 23 total, all passing.
-- [ ] `lithium prefix-remove <name>` -- deleting one currently means
+- [x] `lithium prefix-remove <name>` -- deleting one currently means
       `rm -rf` by hand.
+      **Done.** Prompts for confirmation before deleting (`typer.confirm(...,
+      abort=True)`); `--force`/`-f` skips it. Refuses to delete a prefix that
+      still has a live `wineserver` (reuses the `_wineserver_pids()` /
+      `_wineserver_prefix()` helpers written for `lithium ps`) and points at
+      `prefix-kill` instead -- deleting a prefix out from under a running
+      wineserver corrupts its lock state, the same failure mode that
+      motivated `prefix-kill`. Errors cleanly on a nonexistent prefix. Added
+      4 tests (missing prefix, `--force` delete, abort-on-"n", refuse-while-
+      wineserver-live) -- 27 total, all passing.
+      Also fixed a latent trap found along the way: a bare `pytest` (no path
+      arg) recursed into `external/` -- the multi-GB upstream
+      wine/Proton/MoltenVK checkouts -- and effectively hung at collection.
+      Added `[tool.pytest.ini_options] testpaths = ["tests"]` to
+      `pyproject.toml` so `pytest` / `uv run pytest` scope to `tests/` by
+      default.
 - [ ] Fold dependency install into creation, e.g.
       `lithium prefix-create <name> --with vcrun2019,dotnet48`, instead of
       the two separate manual steps the README currently documents.

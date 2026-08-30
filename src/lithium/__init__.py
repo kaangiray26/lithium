@@ -530,6 +530,38 @@ def prefix_kill(name: str = typer.Argument(..., help="Name of the prefix to shut
     raise typer.Exit(returncode)
 
 
+@app.command("prefix-remove")
+def prefix_remove(
+    name: str = typer.Argument(..., help="Name of the prefix to delete"),
+    force: bool = typer.Option(False, "--force", "-f", help="Skip the confirmation prompt"),
+) -> None:
+    """Delete a Wine prefix and everything in it.
+
+    Refuses to run while the prefix still has a live wineserver -- deleting
+    a prefix out from under a running session corrupts wineserver's lock
+    state (the same reason `prefix-kill` exists). Kill it first.
+    """
+    prefix_dir = prefix_path(name)
+    if not prefix_dir.is_dir():
+        typer.echo(f"error: no such prefix: {name}", err=True)
+        raise typer.Exit(1)
+
+    for pid in _wineserver_pids():
+        if _wineserver_prefix(pid) == name:
+            typer.echo(
+                f"error: prefix '{name}' has a live wineserver (PID {pid}); "
+                f"run 'lithium prefix-kill {name}' first",
+                err=True,
+            )
+            raise typer.Exit(1)
+
+    if not force:
+        typer.confirm(f"Delete prefix '{name}' at {prefix_dir}?", abort=True)
+
+    shutil.rmtree(prefix_dir)
+    typer.echo(f"Removed prefix '{name}'.")
+
+
 def _ps_lines() -> list[str]:
     """Raw `ps -eo pid=,args=` output, one process per line, no header."""
     proc = subprocess.run(["ps", "-eo", "pid=,args="], capture_output=True, text=True)

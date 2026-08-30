@@ -23,3 +23,8 @@ build-backend = "uv_build"
 dev = [
     "pytest>=9.1.1",
 ]
+
+[tool.pytest.ini_options]
+# Without this, a bare `pytest` recurses into external/ (the multi-GB
+# upstream wine/Proton/MoltenVK checkouts) and effectively hangs.
+testpaths = ["tests"]

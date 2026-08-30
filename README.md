@@ -114,6 +114,13 @@ after a game closes, so it's fast to relaunch. To fully tear it down:
 uv run lithium prefix-kill <name>
 ```
 
+To delete a prefix entirely (prompts first; `--force` skips the prompt, and
+it refuses while a `wineserver` is still live — `prefix-kill` it first):
+
+```
+uv run lithium prefix-remove <name>
+```
+
 ## Approach
 
 Apple Silicon has no native x86_64 CPU and no native Vulkan/DirectX, so two

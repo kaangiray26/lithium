@@ -361,3 +361,49 @@ def test_prefix_kill_fails_if_missing(monkeypatch, tmp_path):
     result = runner.invoke(lithium.app, ["prefix-kill", "does-not-exist"])
     assert result.exit_code == 1
     assert "no such prefix" in result.output
+
+
+# --- prefix-remove ---
+
+
+def test_prefix_remove_fails_if_missing(monkeypatch, tmp_path):
+    monkeypatch.setattr(lithium, "PREFIXES_DIR", tmp_path / "prefixes")
+    result = runner.invoke(lithium.app, ["prefix-remove", "does-not-exist"])
+    assert result.exit_code == 1
+    assert "no such prefix" in result.output
+
+
+def test_prefix_remove_deletes_with_force(monkeypatch, tmp_path):
+    prefixes_dir = tmp_path / "prefixes"
+    (prefixes_dir / "silksong" / "drive_c").mkdir(parents=True)
+    monkeypatch.setattr(lithium, "PREFIXES_DIR", prefixes_dir)
+    monkeypatch.setattr(lithium, "_wineserver_pids", lambda: [])
+
+    result = runner.invoke(lithium.app, ["prefix-remove", "silksong", "--force"])
+    assert result.exit_code == 0
+    assert not (prefixes_dir / "silksong").exists()
+    assert "Removed prefix 'silksong'" in result.output
+
+
+def test_prefix_remove_aborts_without_confirmation(monkeypatch, tmp_path):
+    prefixes_dir = tmp_path / "prefixes"
+    (prefixes_dir / "silksong").mkdir(parents=True)
+    monkeypatch.setattr(lithium, "PREFIXES_DIR", prefixes_dir)
+    monkeypatch.setattr(lithium, "_wineserver_pids", lambda: [])
+
+    result = runner.invoke(lithium.app, ["prefix-remove", "silksong"], input="n\n")
+    assert result.exit_code != 0
+    assert (prefixes_dir / "silksong").exists()
+
+
+def test_prefix_remove_refuses_while_wineserver_live(monkeypatch, tmp_path):
+    prefixes_dir = tmp_path / "prefixes"
+    (prefixes_dir / "silksong").mkdir(parents=True)
+    monkeypatch.setattr(lithium, "PREFIXES_DIR", prefixes_dir)
+    monkeypatch.setattr(lithium, "_wineserver_pids", lambda: [4242])
+    monkeypatch.setattr(lithium, "_wineserver_prefix", lambda pid: "silksong")
+
+    result = runner.invoke(lithium.app, ["prefix-remove", "silksong", "--force"])
+    assert result.exit_code == 1
+    assert "live wineserver" in result.output
+    assert (prefixes_dir / "silksong").exists()

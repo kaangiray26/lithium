@@ -400,6 +400,70 @@ def test_prefix_create_fails_if_already_exists(monkeypatch, tmp_path):
     assert "already exists" in result.output
 
 
+def test_prefix_create_with_deps_runs_winetricks(monkeypatch, tmp_path):
+    wine_bin = tmp_path / "wine"
+    wineserver_bin = tmp_path / "wineserver"
+    make_executable(wine_bin)
+    make_executable(wineserver_bin)
+    monkeypatch.setattr(lithium, "WINE_BIN", wine_bin)
+    monkeypatch.setattr(lithium, "WINESERVER_BIN", wineserver_bin)
+    monkeypatch.setattr(lithium, "PREFIXES_DIR", tmp_path / "prefixes")
+    monkeypatch.setattr(lithium.shutil, "which", lambda _name: "/usr/local/bin/winetricks")
+
+    dxvk_build_dir = tmp_path / "dxvk"
+    for sub, dll in lithium.DXVK_DLLS:
+        p = dxvk_build_dir / sub / dll
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_bytes(b"")
+    monkeypatch.setattr(lithium, "DXVK_BUILD_DIR", dxvk_build_dir)
+
+    calls = []
+
+    def fake_run(command, env=None):
+        calls.append(command)
+
+        class Result:
+            returncode = 0
+
+        return Result()
+
+    monkeypatch.setattr(lithium.subprocess, "run", fake_run)
+
+    result = runner.invoke(
+        lithium.app, ["prefix-create", "silksong", "--with", "vcrun2019, dotnet48"]
+    )
+    assert result.exit_code == 0, result.output
+
+    winetricks_calls = [c for c in calls if "winetricks" in c]
+    assert len(winetricks_calls) == 1
+    assert winetricks_calls[0][-2:] == ["vcrun2019", "dotnet48"]
+
+
+def test_prefix_create_with_requires_winetricks_installed(monkeypatch, tmp_path):
+    wine_bin = tmp_path / "wine"
+    make_executable(wine_bin)
+    monkeypatch.setattr(lithium, "WINE_BIN", wine_bin)
+    monkeypatch.setattr(lithium, "PREFIXES_DIR", tmp_path / "prefixes")
+    monkeypatch.setattr(lithium.shutil, "which", lambda _name: None)
+
+    result = runner.invoke(lithium.app, ["prefix-create", "silksong", "--with", "vcrun2019"])
+    assert result.exit_code == 1
+    assert "needs winetricks" in result.output
+    # bailed before creating anything
+    assert not (tmp_path / "prefixes" / "silksong").exists()
+
+
+def test_prefix_create_with_empty_verbs_errors(monkeypatch, tmp_path):
+    wine_bin = tmp_path / "wine"
+    make_executable(wine_bin)
+    monkeypatch.setattr(lithium, "WINE_BIN", wine_bin)
+    monkeypatch.setattr(lithium, "PREFIXES_DIR", tmp_path / "prefixes")
+
+    result = runner.invoke(lithium.app, ["prefix-create", "silksong", "--with", " , "])
+    assert result.exit_code == 1
+    assert "lists no verbs" in result.output
+
+
 def test_prefix_kill_fails_if_missing(monkeypatch, tmp_path):
     wine_bin = tmp_path / "wine"
     make_executable(wine_bin)

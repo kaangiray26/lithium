@@ -564,9 +564,17 @@ Prefix lifecycle:
       Added `[tool.pytest.ini_options] testpaths = ["tests"]` to
       `pyproject.toml` so `pytest` / `uv run pytest` scope to `tests/` by
       default.
-- [ ] Fold dependency install into creation, e.g.
+- [x] Fold dependency install into creation, e.g.
       `lithium prefix-create <name> --with vcrun2019,dotnet48`, instead of
       the two separate manual steps the README currently documents.
+      **Done.** `--with` takes a comma-separated list of winetricks verbs
+      and runs `lithium_winetricks_exec` right after the DXVK DLL copy,
+      reusing the exact same env plumbing as `lithium winetricks`. Fails
+      fast (before creating the prefix dir) if winetricks isn't installed
+      or `--with` lists no real verbs; if winetricks itself fails partway,
+      the prefix is left in place and the error points at
+      `lithium winetricks <name> ...` to retry. README's step 2b documents
+      both forms now. Added 3 tests -- 34 total, all passing.
 
 Build ergonomics:
 - [ ] `--quiet` flag for `build` -- output right now is the raw

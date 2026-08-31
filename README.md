@@ -103,6 +103,12 @@ winetricks`) against your own Wine build:
 uv run lithium winetricks <name> vcrun2019 dotnet48
 ```
 
+You can also fold this into prefix creation in one step:
+
+```
+uv run lithium prefix-create <name> --with vcrun2019,dotnet48
+```
+
 ### 3. Run the game
 
 ```

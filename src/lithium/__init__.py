@@ -531,9 +531,30 @@ def prefix_list() -> None:
 
 
 @app.command("prefix-create")
-def prefix_create(name: str = typer.Argument(..., help="Name of the prefix to create")) -> None:
-    """Create and initialize a new Wine prefix."""
+def prefix_create(
+    name: str = typer.Argument(..., help="Name of the prefix to create"),
+    with_: Optional[str] = typer.Option(
+        None,
+        "--with",
+        metavar="VERBS",
+        help="Comma-separated winetricks verbs to install right after creation, "
+        "e.g. --with vcrun2019,dotnet48",
+    ),
+) -> None:
+    """Create and initialize a new Wine prefix.
+
+    Pass --with to fold a winetricks dependency install into creation
+    instead of running `lithium winetricks <name> ...` as a separate step.
+    """
     require_wine_build()
+
+    verbs = [v.strip() for v in with_.split(",") if v.strip()] if with_ else []
+    if with_ and not verbs:
+        typer.echo("error: --with was given but lists no verbs", err=True)
+        raise typer.Exit(1)
+    if verbs and not shutil.which("winetricks"):
+        typer.echo("error: --with needs winetricks (`brew install winetricks`)", err=True)
+        raise typer.Exit(1)
 
     prefix_dir = prefix_path(name)
     if prefix_dir.exists():
@@ -554,6 +575,17 @@ def prefix_create(name: str = typer.Argument(..., help="Name of the prefix to cr
     for sub, dll in DXVK_DLLS:
         src = DXVK_BUILD_DIR / sub / dll
         (system32 / dll).write_bytes(src.read_bytes())
+
+    if verbs:
+        typer.echo(f"Installing dependencies via winetricks: {' '.join(verbs)}...")
+        returncode = lithium_winetricks_exec(prefix_dir, *verbs)
+        if returncode != 0:
+            typer.echo(
+                f"error: winetricks failed (exit {returncode}); the prefix at {prefix_dir} "
+                f"was still created -- retry with 'lithium winetricks {name} {' '.join(verbs)}'",
+                err=True,
+            )
+            raise typer.Exit(returncode)
 
     typer.echo(f"Prefix '{name}' ready.")
 

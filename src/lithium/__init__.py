@@ -179,7 +179,23 @@ def _log(message: str) -> None:
     typer.echo(f"==> {message}")
 
 
+# Set by `build --quiet`: when True, _run swallows a child's stdout/stderr
+# so only the `==>` phase markers scroll past. A failing step still dumps
+# its full captured output so there's something to diagnose from.
+_QUIET = False
+
+
 def _run(command: list[str], *, cwd: Optional[Path] = None, env: Optional[dict] = None) -> None:
+    if _QUIET:
+        proc = subprocess.run(command, cwd=cwd, env=env, capture_output=True, text=True)
+        if proc.returncode != 0:
+            if proc.stdout:
+                typer.echo(proc.stdout, nl=False)
+            if proc.stderr:
+                typer.echo(proc.stderr, nl=False, err=True)
+            raise typer.Exit(proc.returncode)
+        return
+
     proc = subprocess.run(command, cwd=cwd, env=env)
     if proc.returncode != 0:
         raise typer.Exit(proc.returncode)
@@ -399,20 +415,37 @@ def _build_dxvk() -> None:
 
 
 @app.command()
-def build() -> None:
+def build(
+    quiet: bool = typer.Option(
+        False,
+        "--quiet",
+        "-q",
+        help="Only print the ==> phase markers, not the raw make/ninja/xcodebuild output "
+        "(a failing step still dumps its full output)",
+    ),
+) -> None:
     """Build the Wine + DXVK + MoltenVK stack from source (one-time host bootstrap).
 
     Safe to re-run -- already-built pieces are skipped. Requires full Xcode
     (not just Command Line Tools) already installed and selected via
     `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer`.
+
+    Note: the very first run also bootstraps a second, x86_64 Homebrew
+    prefix, which prompts for your admin password -- that prompt is hidden
+    under --quiet, so run the first build without it.
     """
-    _build_sanity_checks()
-    _build_arm64_brew_deps()
-    _build_x86_64_brew_deps()
-    _build_moltenvk()
-    _build_wine()
-    _build_dxvk()
-    _log("Done. Verify with: lithium doctor")
+    global _QUIET
+    _QUIET = quiet
+    try:
+        _build_sanity_checks()
+        _build_arm64_brew_deps()
+        _build_x86_64_brew_deps()
+        _build_moltenvk()
+        _build_wine()
+        _build_dxvk()
+        _log("Done. Verify with: lithium doctor")
+    finally:
+        _QUIET = False
 
 
 @app.command()

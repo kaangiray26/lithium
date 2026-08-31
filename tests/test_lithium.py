@@ -156,6 +156,31 @@ def test_dxvk_version_reads_generated_header(monkeypatch, tmp_path):
     assert lithium._dxvk_version() == "v9.9.9-1-gabc123"
 
 
+# --- _run quiet mode (build --quiet) ---
+
+
+def test_run_helper_quiet_suppresses_output_on_success(monkeypatch, capsys):
+    monkeypatch.setattr(lithium, "_QUIET", True)
+    lithium._run(["sh", "-c", "echo to-stdout; echo to-stderr >&2"])
+    captured = capsys.readouterr()
+    assert "to-stdout" not in captured.out
+    assert "to-stderr" not in captured.err
+
+
+def test_run_helper_quiet_dumps_output_on_failure(monkeypatch, capsys):
+    monkeypatch.setattr(lithium, "_QUIET", True)
+    with pytest.raises(lithium.typer.Exit) as exc:
+        lithium._run(["sh", "-c", "echo boom >&2; exit 3"])
+    assert exc.value.exit_code == 3
+    captured = capsys.readouterr()
+    assert "boom" in captured.err
+
+
+def test_run_helper_non_quiet_is_default(monkeypatch):
+    # sanity: module default is False so normal builds stay verbose
+    assert lithium._QUIET is False
+
+
 # --- clean ---
 
 

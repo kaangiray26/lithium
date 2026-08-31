@@ -577,10 +577,20 @@ Prefix lifecycle:
       both forms now. Added 3 tests -- 34 total, all passing.
 
 Build ergonomics:
-- [ ] `--quiet` flag for `build` -- output right now is the raw
+- [x] `--quiet` flag for `build` -- output right now is the raw
       `make`/`ninja`/`xcodebuild` firehose between the `==>` phase
       markers; showing only phase transitions would be much more
       pleasant to watch for something that already takes real time.
+      **Done, as `build --quiet` / `-q`.** A module-level `_QUIET` toggle
+      (set by `build`, reset in a `finally`) switches `_run` to
+      `capture_output=True` so child stdout/stderr is swallowed and only
+      the `==>` markers scroll past. A step that fails still dumps its
+      full captured output before exiting, so there's something to
+      diagnose from. Caveat documented in the command docstring: the
+      first-ever run's x86_64 Homebrew bootstrap prompts for a sudo
+      password, which `--quiet` hides -- run the first build without it.
+      Added 3 tests (quiet suppresses on success, dumps on failure,
+      default stays verbose) -- 41 total, all passing.
 - [x] `lithium clean` (or `build --force`) to deliberately wipe
       `build/wine`/`build/dxvk` and force a real rebuild, rather than the
       manual `rm -rf` used a few times this session for reproducibility

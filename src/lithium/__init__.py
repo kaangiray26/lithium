@@ -738,12 +738,30 @@ def winetricks(
     raise typer.Exit(returncode)
 
 
+def _looks_like_host_path(exe: str) -> bool:
+    """Whether `exe` is meant to be a file on the host, vs a Wine builtin.
+
+    A bare name like `cmd`, `notepad`, or `wineboot` is resolved by Wine
+    inside the prefix and never exists on the host. `C:\\...`-style Windows
+    paths aren't host paths we can stat either. Anything with a POSIX path
+    separator (`lithium run x prefixes/.../Game.exe`, `./setup.exe`,
+    `/abs/path.exe`) is a host path and worth preflighting.
+    """
+    return "/" in exe
+
+
 def _run_exe(name: str, exe: str, args: list[str]) -> None:
     require_wine_build()
 
     prefix_dir = prefix_path(name)
     if not prefix_dir.is_dir():
         typer.echo(f"error: no such prefix: {name} (run 'lithium prefix-create {name}' first)", err=True)
+        raise typer.Exit(1)
+
+    # Preflight the target path -- a typo otherwise fails deep inside Wine
+    # with a confusing error far removed from the actual cause.
+    if _looks_like_host_path(exe) and not Path(exe).is_file():
+        typer.echo(f"error: no such file: {exe}", err=True)
         raise typer.Exit(1)
 
     returncode = lithium_wine_exec(prefix_dir, exe, *args)

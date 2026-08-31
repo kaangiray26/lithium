@@ -464,6 +464,68 @@ def test_prefix_create_with_empty_verbs_errors(monkeypatch, tmp_path):
     assert "lists no verbs" in result.output
 
 
+# --- run / install preflight ---
+
+
+def _setup_run_stack(monkeypatch, tmp_path):
+    wine_bin = tmp_path / "wine"
+    make_executable(wine_bin)
+    monkeypatch.setattr(lithium, "WINE_BIN", wine_bin)
+    monkeypatch.setattr(lithium, "PREFIXES_DIR", tmp_path / "prefixes")
+    (tmp_path / "prefixes" / "silksong" / "drive_c").mkdir(parents=True)
+
+    calls = []
+
+    def fake_run(command, env=None):
+        calls.append(command)
+
+        class Result:
+            returncode = 0
+
+        return Result()
+
+    monkeypatch.setattr(lithium.subprocess, "run", fake_run)
+    return calls
+
+
+def test_run_rejects_missing_host_path(monkeypatch, tmp_path):
+    calls = _setup_run_stack(monkeypatch, tmp_path)
+    result = runner.invoke(
+        lithium.app, ["run", "silksong", "prefixes/silksong/drive_c/Games/Typo.exe"]
+    )
+    assert result.exit_code == 1
+    assert "no such file" in result.output
+    assert calls == []  # bailed before invoking wine
+
+
+def test_run_allows_existing_host_path(monkeypatch, tmp_path):
+    calls = _setup_run_stack(monkeypatch, tmp_path)
+    game_exe = tmp_path / "prefixes" / "silksong" / "drive_c" / "Games" / "Game.exe"
+    game_exe.parent.mkdir(parents=True)
+    game_exe.write_bytes(b"MZ")
+
+    result = runner.invoke(lithium.app, ["run", "silksong", str(game_exe)])
+    assert result.exit_code == 0
+    assert len(calls) == 1
+    assert str(game_exe) in calls[0]
+
+
+def test_run_skips_preflight_for_bare_builtin_name(monkeypatch, tmp_path):
+    calls = _setup_run_stack(monkeypatch, tmp_path)
+    result = runner.invoke(lithium.app, ["run", "silksong", "wineboot"])
+    assert result.exit_code == 0
+    assert len(calls) == 1
+    assert "wineboot" in calls[0]
+
+
+def test_install_preflights_too(monkeypatch, tmp_path):
+    calls = _setup_run_stack(monkeypatch, tmp_path)
+    result = runner.invoke(lithium.app, ["install", "silksong", "./no/such/setup.exe"])
+    assert result.exit_code == 1
+    assert "no such file" in result.output
+    assert calls == []
+
+
 def test_prefix_kill_fails_if_missing(monkeypatch, tmp_path):
     wine_bin = tmp_path / "wine"
     make_executable(wine_bin)

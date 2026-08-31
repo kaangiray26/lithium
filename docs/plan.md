@@ -600,9 +600,16 @@ Build ergonomics:
       Added 4 tests -- 31 total, all passing.
 
 Safety / correctness:
-- [ ] Preflight checks on `run`/`install` -- a typo'd exe path currently
+- [x] Preflight checks on `run`/`install` -- a typo'd exe path currently
       fails deep inside Wine with a confusing error; checking the path
       exists first and failing fast would be a small, cheap win.
+      **Done.** `_run_exe` now stat-checks the target before invoking Wine
+      and exits with `error: no such file: <path>` if it's missing. Only
+      applies when the arg looks like a host path (`_looks_like_host_path`
+      -- contains a `/`); bare Wine builtins (`cmd`, `wineboot`, `notepad`)
+      and `C:\\...`-style Windows paths are left alone since Wine resolves
+      those itself. Covers both `run` and `install` (shared code path).
+      Added 4 tests -- 38 total, all passing.
 
 ## Risks — confirmed, and new ones found along the way
 

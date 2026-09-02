@@ -87,6 +87,74 @@ def test_lithium_wine_exec_env_and_command(monkeypatch, tmp_path):
     assert env["GST_PLUGIN_PATH"] == lithium.GST_PLUGIN_PATH_VALUE
 
 
+def test_lithium_wine_exec_sets_winedebug_when_given(monkeypatch, tmp_path):
+    wine_bin = tmp_path / "wine"
+    make_executable(wine_bin)
+    monkeypatch.setattr(lithium, "WINE_BIN", wine_bin)
+
+    captured = {}
+
+    def fake_run(command, env=None):
+        captured["env"] = env
+
+        class Result:
+            returncode = 0
+
+        return Result()
+
+    monkeypatch.setattr(lithium.subprocess, "run", fake_run)
+
+    lithium.lithium_wine_exec(tmp_path / "prefixes" / "silksong", "cmd", winedebug="+relay,+server")
+    assert captured["env"]["WINEDEBUG"] == "+relay,+server"
+
+
+def test_lithium_wine_exec_no_winedebug_key_by_default(monkeypatch, tmp_path):
+    wine_bin = tmp_path / "wine"
+    make_executable(wine_bin)
+    monkeypatch.setattr(lithium, "WINE_BIN", wine_bin)
+    monkeypatch.delenv("WINEDEBUG", raising=False)
+
+    captured = {}
+
+    def fake_run(command, env=None):
+        captured["env"] = env
+
+        class Result:
+            returncode = 0
+
+        return Result()
+
+    monkeypatch.setattr(lithium.subprocess, "run", fake_run)
+
+    lithium.lithium_wine_exec(tmp_path / "prefixes" / "silksong", "cmd")
+    assert "WINEDEBUG" not in captured["env"]
+
+
+def test_run_command_passes_debug_flag_through(monkeypatch, tmp_path):
+    wine_bin = tmp_path / "wine"
+    make_executable(wine_bin)
+    monkeypatch.setattr(lithium, "WINE_BIN", wine_bin)
+    prefix_dir = tmp_path / "prefixes" / "silksong"
+    prefix_dir.mkdir(parents=True)
+    monkeypatch.setattr(lithium, "PREFIXES_DIR", prefix_dir.parent)
+
+    captured = {}
+
+    def fake_exec(prefix_dir, *args, extra_dll_overrides=None, winedebug=None):
+        captured["winedebug"] = winedebug
+        captured["args"] = args
+        return 0
+
+    monkeypatch.setattr(lithium, "lithium_wine_exec", fake_exec)
+
+    result = runner.invoke(lithium.app, ["run", "silksong", "cmd", "--debug=+relay", "/c", "echo hi"])
+    assert result.exit_code == 0
+    assert captured["winedebug"] == "+relay"
+    # --debug shouldn't leak into the passthrough args meant for the exe
+    assert "--debug=+relay" not in captured["args"]
+    assert captured["args"] == ("cmd", "/c", "echo hi")
+
+
 def test_lithium_winetricks_exec_env(monkeypatch, tmp_path):
     wine_bin = tmp_path / "wine"
     wineserver_bin = tmp_path / "wineserver"

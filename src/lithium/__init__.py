@@ -136,7 +136,12 @@ def _dyld_wrapped_command(*command: str) -> list[str]:
     ]
 
 
-def lithium_wine_exec(prefix_dir: Path, *args: str, extra_dll_overrides: Optional[str] = None) -> int:
+def lithium_wine_exec(
+    prefix_dir: Path,
+    *args: str,
+    extra_dll_overrides: Optional[str] = None,
+    winedebug: Optional[str] = None,
+) -> int:
     """Run a command against a prefix with all the env plumbing this stack needs."""
     require_wine_build()
 
@@ -150,6 +155,10 @@ def lithium_wine_exec(prefix_dir: Path, *args: str, extra_dll_overrides: Optiona
     env["GST_PLUGIN_PATH"] = GST_PLUGIN_PATH_VALUE
     env["WINEDLLOVERRIDES"] = overrides
     env["DXVK_CONFIG"] = DXVK_CONFIG_VALUE
+    if winedebug:
+        # Explicit --debug always wins over whatever WINEDEBUG the parent
+        # shell happens to have set, rather than silently deferring to it.
+        env["WINEDEBUG"] = winedebug
 
     proc = subprocess.run(_dyld_wrapped_command(str(WINE_BIN), *args), env=env)
     return proc.returncode
@@ -783,7 +792,7 @@ def _looks_like_host_path(exe: str) -> bool:
     return "/" in exe
 
 
-def _run_exe(name: str, exe: str, args: list[str]) -> None:
+def _run_exe(name: str, exe: str, args: list[str], debug: Optional[str] = None) -> None:
     require_wine_build()
 
     prefix_dir = prefix_path(name)
@@ -797,7 +806,7 @@ def _run_exe(name: str, exe: str, args: list[str]) -> None:
         typer.echo(f"error: no such file: {exe}", err=True)
         raise typer.Exit(1)
 
-    returncode = lithium_wine_exec(prefix_dir, exe, *args)
+    returncode = lithium_wine_exec(prefix_dir, exe, *args, winedebug=debug)
     raise typer.Exit(returncode)
 
 
@@ -806,9 +815,14 @@ def run(
     name: str = typer.Argument(..., help="Name of the prefix to run in"),
     exe: str = typer.Argument(..., help="Path to the Windows executable"),
     args: Optional[list[str]] = typer.Argument(None, help="Extra arguments passed to the executable"),
+    debug: Optional[str] = typer.Option(
+        None,
+        "--debug",
+        help="Set WINEDEBUG for this run, e.g. --debug=+relay or --debug=+server,+loaddll",
+    ),
 ) -> None:
     """Run a Windows executable inside a prefix."""
-    _run_exe(name, exe, args or [])
+    _run_exe(name, exe, args or [], debug=debug)
 
 
 @app.command(context_settings={"ignore_unknown_options": True})
@@ -816,6 +830,11 @@ def install(
     name: str = typer.Argument(..., help="Name of the prefix to install into"),
     exe: str = typer.Argument(..., help="Path to the Windows installer"),
     args: Optional[list[str]] = typer.Argument(None, help="Extra arguments passed to the installer"),
+    debug: Optional[str] = typer.Option(
+        None,
+        "--debug",
+        help="Set WINEDEBUG for this run, e.g. --debug=+relay or --debug=+server,+loaddll",
+    ),
 ) -> None:
     """Run a Windows installer inside a prefix (alias for 'run')."""
-    _run_exe(name, exe, args or [])
+    _run_exe(name, exe, args or [], debug=debug)

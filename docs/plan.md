@@ -506,9 +506,30 @@ Visibility / debugging:
       short, guaranteed-untruncated substrings instead (component names,
       `OK`/`MISSING`, the `unknown (...)` fallback strings) rather than
       full row text.
-- [ ] `--debug=<channels>` flag on `run` to set `WINEDEBUG` -- every
+- [x] `--debug=<channels>` flag on `run` to set `WINEDEBUG` -- every
       debugging session so far has meant hand-crafting
       `WINEDEBUG=+something` outside the CLI.
+      **Initially skipped** on the reasoning that `lithium_wine_exec`
+      already inherits `WINEDEBUG` from the parent shell via
+      `os.environ.copy()`, so this was discoverability-only, not new
+      capability -- revisited and actually done shortly after.
+      **Done.** `lithium_wine_exec()` gained a `winedebug` parameter that
+      sets `env["WINEDEBUG"]`, explicitly overriding anything inherited
+      from the parent shell rather than deferring to it. `run`/`install`
+      both gained `--debug=<channels>` (shared through `_run_exe`), e.g.
+      `lithium run silksong Game.exe --debug=+relay`. Verified for real,
+      not just via mocks: `--debug=+loaddll` produced genuine
+      `trace:loaddll:build_module` output while the command still ran and
+      returned its real output correctly, and the plain no-`--debug` case
+      stayed exactly as quiet as before. Also specifically verified the
+      option-parsing edge case that motivated checking rather than
+      assuming: `run`/`install` use `context_settings={"ignore_unknown_options":
+      True}` so arbitrary flags meant for the wrapped Windows program
+      (e.g. `/c`) pass through instead of erroring -- confirmed `--debug`
+      is still parsed as Lithium's own option regardless of where it
+      appears in the command line, and does not get swallowed into the
+      passthrough args meant for the exe. Added 4 tests -- 44 total, all
+      passing.
 - [x] `lithium ps`/`lithium status` -- show which prefixes currently have
       a live `wineserver`/game process. Lingering-wineserver confusion has
       come up a few times; the only current check is `ps aux | grep wine`.

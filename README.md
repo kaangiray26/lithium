@@ -1,4 +1,4 @@
-![lithium](docs/images/lithium.png)
+<img src="docs/images/lithium.svg" alt="lithium" width="256" />
 
 # Lithium
 Compatibility tool for macOS based on Valve's Proton and additional components

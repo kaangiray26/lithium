@@ -71,11 +71,19 @@ LITHIUM_ROOT = _detect_lithium_root()
 EXTERNAL_DIR = LITHIUM_ROOT / "external"
 
 WINE_BUILD_DIR = LITHIUM_ROOT / "build" / "wine"
-WINE_BIN = WINE_BUILD_DIR / "loader" / "wine"
-WINESERVER_BIN = WINE_BUILD_DIR / "server" / "wineserver"
+# Overridable so a `lithium package` archive's `wine/bin/{wine,wineserver}`
+# (a `make install-lib` tree, different shape than the dev build tree above
+# -- see `_install_wine_runtime`) can be used directly without a full
+# `lithium build`.
+WINE_BIN = Path(os.environ.get("LITHIUM_WINE_BIN", str(WINE_BUILD_DIR / "loader" / "wine")))
+WINESERVER_BIN = Path(
+    os.environ.get("LITHIUM_WINESERVER_BIN", str(WINE_BUILD_DIR / "server" / "wineserver"))
+)
 
 DXVK_MESON_BUILD_DIR = LITHIUM_ROOT / "build" / "dxvk"
-DXVK_BUILD_DIR = DXVK_MESON_BUILD_DIR / "src"
+# Overridable to a `lithium package` archive's `dxvk/` dir, which mirrors
+# this same (subdir, dllname) layout -- see DXVK_DLLS below.
+DXVK_BUILD_DIR = Path(os.environ.get("LITHIUM_DXVK_DIR", str(DXVK_MESON_BUILD_DIR / "src")))
 # (subdir, dllname) pairs, copied into the prefix's system32 on prefix create
 DXVK_DLLS = [
     ("d3d8", "d3d8.dll"),

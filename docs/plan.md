@@ -430,11 +430,30 @@ by value-to-effort.
       incomplete, listing exactly what's missing, same pattern as
       `doctor`. Added 2 tests (incomplete-build error path, real archive
       contents via `tarfile`) -- 50 total, all passing.
-      **Still open, not done here**: nothing downloads or extracts this
-      archive automatically (no `lithium build --from-dist`), and nothing
-      publishes it anywhere (no GitHub Release integration) -- both
-      deliberately out of scope for this pass, pick up if/when actually
-      needed.
+      **Follow-up: made the archive actually usable, not just producible.**
+      Published `v0.1.1` on GitHub with the archive attached, then found a
+      real gap trying to write a usage guide for it: the CLI had no way to
+      point at a `lithium package` archive at all -- `WINE_BIN`/
+      `WINESERVER_BIN`/`DXVK_BUILD_DIR` were hardcoded to the dev build
+      tree's shape (`build/wine/loader/wine`, `build/dxvk/src/...`), which
+      doesn't match the packaged tree's shape (`wine/bin/wine`,
+      `dxvk/<subdir>/<dll>` -- deliberately built to mirror `DXVK_DLLS`,
+      but Wine's `install-lib` tree is a genuinely different layout than
+      the raw build dir, see the note above). Added three env var
+      overrides -- `LITHIUM_WINE_BIN`, `LITHIUM_WINESERVER_BIN`,
+      `LITHIUM_DXVK_DIR` -- following the exact pattern already used for
+      `LITHIUM_MOLTENVK_DIR`. Verified for real, not just by reasoning
+      about the code: downloaded the actual published archive, extracted
+      it to `/tmp`, set all four env vars, and ran `lithium doctor` (all
+      green), `lithium prefix create`, `lithium run ... cmd /c echo ...`,
+      `lithium prefix kill`, and `lithium prefix remove` against a
+      throwaway prefix -- full lifecycle worked using only the extracted
+      archive, no dev build (`build/`, `external/`) involved at all.
+      README documents this as a collapsed "Using a pre-built release
+      archive instead of building" section. Still no *automatic*
+      download/extraction (no `lithium build --from-dist`) -- this closes
+      "can I actually use the archive" (yes, via env vars), not "can
+      Lithium fetch and wire it up for me" (still manual).
 - [x] Add automated tests for the `lithium` CLI (`src/lithium`) -- zero
       test coverage currently. Even basic tests (path resolution, env var
       construction, `doctor` logic) would catch regressions as the tool

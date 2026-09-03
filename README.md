@@ -159,6 +159,9 @@ wasn't viable here.
 
 ## Status
 
+See [`docs/games/`](docs/games/) for the full list of games actually
+tested against Lithium and their status.
+
 **Milestone: Hollow Knight: Silksong runs and is playable end to end.**
 An unmodified Windows game — DirectX 11, Unity engine, downloaded as a
 normal offline GOG-style installer — runs through the full stack: Wine

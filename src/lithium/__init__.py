@@ -95,6 +95,9 @@ PROTON_SRC = EXTERNAL_DIR / "Proton"
 PROTON_REF = "proton-11.0-2"  # latest stable tag as of writing
 DXVK_SRC = PROTON_SRC / "dxvk"  # pinned via PROTON_REF's recorded submodule commit
 DXVK_PATCH = LITHIUM_ROOT / "patches" / "dxvk-apple-silicon.patch"
+WINE_PATCHES = [
+    LITHIUM_ROOT / "patches" / "wine-mfplat-shared-video-texture.patch",
+]
 BISON_PATH = "/opt/homebrew/opt/bison/bin"
 
 # MoltenVK's built output (the dylib/headers `lithium build` consumes).
@@ -338,6 +341,20 @@ def _build_moltenvk() -> None:
     )
 
 
+def _apply_patch(repo_dir: Path, patch_path: Path) -> None:
+    """Apply a patch if not already applied (checked via a dry-run reverse-apply)."""
+    already_applied = subprocess.run(
+        ["git", "apply", "--check", "--reverse", str(patch_path)],
+        cwd=repo_dir,
+        capture_output=True,
+    ).returncode == 0
+    if not already_applied:
+        _log(f"Applying {patch_path.name}...")
+        _run(["git", "apply", str(patch_path)], cwd=repo_dir)
+    else:
+        _log(f"{patch_path.name} already applied, skipping.")
+
+
 def _build_wine() -> None:
     if not WINE_SRC.is_dir():
         _log("Cloning WineHQ wine...")
@@ -345,6 +362,9 @@ def _build_wine() -> None:
 
     _run(["git", "fetch", "--tags"], cwd=WINE_SRC)
     _run(["git", "checkout", WINE_REF], cwd=WINE_SRC)
+
+    for patch_path in WINE_PATCHES:
+        _apply_patch(WINE_SRC, patch_path)
 
     wine_build_dir = WINE_BUILD_DIR
     wine_build_dir.mkdir(parents=True, exist_ok=True)
@@ -397,16 +417,7 @@ def _build_dxvk() -> None:
     _run(["git", "checkout", PROTON_REF], cwd=PROTON_SRC)
     _run(["git", "submodule", "update", "--init", "dxvk"], cwd=PROTON_SRC)
 
-    already_patched = subprocess.run(
-        ["git", "apply", "--check", "--reverse", str(DXVK_PATCH)],
-        cwd=DXVK_SRC,
-        capture_output=True,
-    ).returncode == 0
-    if not already_patched:
-        _log("Applying Apple Silicon DXVK patches...")
-        _run(["git", "apply", str(DXVK_PATCH)], cwd=DXVK_SRC)
-    else:
-        _log("DXVK patches already applied, skipping.")
+    _apply_patch(DXVK_SRC, DXVK_PATCH)
 
     if not (DXVK_MESON_BUILD_DIR / "build.ninja").is_file():
         _log("Configuring DXVK (mingw cross build)...")

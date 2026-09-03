@@ -1,0 +1,49 @@
+diff --git a/dlls/mfplat/sample.c b/dlls/mfplat/sample.c
+index 4d75924b939..fb722d5a2af 100644
+--- a/dlls/mfplat/sample.c
++++ b/dlls/mfplat/sample.c
+@@ -1420,7 +1420,7 @@ static HRESULT sample_allocator_initialize(struct sample_allocator *allocator, u
+     struct surface_service service;
+     struct queued_sample *sample;
+     DXGI_FORMAT dxgi_format;
+-    unsigned int i, value;
++    unsigned int i;
+     GUID major, subtype;
+     UINT64 frame_size;
+     UINT32 usage;
+@@ -1470,10 +1470,31 @@ static HRESULT sample_allocator_initialize(struct sample_allocator *allocator, u
+     if (attributes)
+     {
+         IMFAttributes_GetUINT32(attributes, &MF_SA_D3D11_BINDFLAGS, &allocator->frame_desc.bindflags);
+-        if (SUCCEEDED(IMFAttributes_GetUINT32(attributes, &MF_SA_D3D11_SHARED, &value)) && value)
+-            allocator->frame_desc.miscflags |= D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX;
+-        if (SUCCEEDED(IMFAttributes_GetUINT32(attributes, &MF_SA_D3D11_SHARED_WITHOUT_MUTEX, &value)) && value)
+-            allocator->frame_desc.miscflags |= D3D11_RESOURCE_MISC_SHARED;
++        /* Deliberately not honoring MF_SA_D3D11_SHARED / MF_SA_D3D11_
++         * SHARED_WITHOUT_MUTEX here (originally: set D3D11_RESOURCE_MISC_
++         * SHARED_KEYEDMUTEX / D3D11_RESOURCE_MISC_SHARED on request).
++         * A genuinely shared (cross-device/cross-process) D3D11 resource
++         * needs VK_KHR_EXTERNAL_MEMORY_WIN32 under DXVK, which is a
++         * Windows-only Vulkan extension (platform="win32" in the spec) --
++         * no Vulkan driver on any other OS can ever expose it, so this
++         * fails unconditionally on Linux/Proton too, not just macOS/
++         * MoltenVK (confirmed: DXVK's own dxvk_device_info.cpp already
++         * marks khrExternalMemoryWin32 optional, not required), and would
++         * otherwise abort sample allocation outright with no video at all.
++         * NOTE: this does NOT fully fix video playback by itself -- it
++         * avoids the hard failure and lets the whole decode pipeline run
++         * to completion (verified: every frame decodes, converts, and is
++         * delivered to the caller via the normal IMFSourceReader callback
++         * path), but the caller may rely on genuine cross-device sharing
++         * (this attributes object also carries the real, app-facing
++         * MF_SOURCE_READER_D3D11_BIND_FLAGS attribute, suggesting a
++         * second D3D11 device may be involved) and end up not rendering
++         * the now-non-shared texture. See patches/wine-mfplat-shared-
++         * video-texture.patch and docs/context.md in the Lithium project
++         * for the full investigation -- allocate a plain (non-shared)
++         * texture on that device instead of failing sample allocation
++         * outright.
++         */
+     }
+ 
+     sample_allocator_set_media_type(allocator, media_type);

@@ -82,6 +82,55 @@ details (known limitations, status) that don't belong in a checklist.
   weighed against losing ~1000 commits of unrelated upstream fixes by
   staying on the older tag long-term. Full writeup:
   `project_lithium_gstreamer_video_bug` in memory.
+
+  **Final update — re-investigated with real tracing on the actual
+  current `wine-11.16` build (using the new `lithium run --debug` flag),
+  and the earlier plan to patch the stride bug turned out to be
+  unnecessary.** `WINEDEBUG=+dmo,+mfplat,+quartz` against a real
+  black-screen cutscene showed: the alignment failure still fires every
+  frame exactly as before (`stride 1916 isn't aligned to 16 bytes`), but
+  Wine's own existing fallback (`video_frame_copy_from_buffer`) already
+  recovers from it correctly every time -- it copies into a
+  pre-allocated, `av_frame_get_buffer()`-backed scratch frame that's
+  naturally padded to a 16-byte-aligned **stride 1920**, and that frame
+  proceeds cleanly into `video_processor_process_input`. **This bug was
+  never the actual blocker; it's silently handled.** The real, sole
+  blocker fires immediately after, during `ProcessOutput`'s attempt to
+  set up a D3D11-backed shared sample allocator:
+  `Failed to create shared resource: VK_KHR_EXTERNAL_MEMORY_WIN32 not
+  supported` -- the exact same platform gap found on `wine-11.11`, now
+  directly reconfirmed on `wine-11.16`. So: no stride patch was written
+  (it would have fixed nothing), and the cutscene's real blocker is
+  purely the DXVK/MoltenVK shared-resource gap, unchanged by any Wine
+  version. See `project_lithium_gstreamer_video_bug` in memory for the
+  full trace evidence.
+
+  **Latest update — patched the actual `VK_KHR_EXTERNAL_MEMORY_WIN32`
+  gap, real progress, but the cutscene still doesn't render.** Root
+  caused to `dlls/mfplat/sample.c`'s `sample_allocator_initialize()` --
+  the last Wine-controlled point before a shared-D3D11-resource request
+  reaches DXVK -- and patched it to skip the `MF_SA_D3D11_SHARED*`
+  attributes instead of requesting a resource type no non-Windows Vulkan
+  driver can ever provide (`patches/wine-mfplat-shared-video-texture.patch`,
+  applied automatically by `lithium build`). Verified for real: the DXVK
+  error is completely gone, and Wine's decode pipeline now runs flawlessly
+  end-to-end -- all 392 frames of the cutscene decode, color-convert, and
+  get delivered via the standard `IMFSourceReader` callback, exactly where
+  a real Windows app would receive them. **Still no visible video.**
+  Tracked the actual texture pointer through the full trace -- it's
+  created once and never touched by any further D3D11 call, meaning
+  whatever consumes it (almost certainly Unity's own closed rendering
+  code) never does anything visible with it. Found evidence this may be
+  architectural, not just unnecessary: the same attributes object also
+  carries the real, app-facing `MF_SOURCE_READER_D3D11_BIND_FLAGS`,
+  suggesting Unity may genuinely decode on one D3D11 device and render on
+  another, needing real cross-device sharing this patch doesn't provide.
+  **Kept the patch anyway** -- it's a real correctness fix (any app
+  requesting shared D3D11 resources under Wine on macOS would otherwise
+  hit a hard, unrecoverable failure; now it degrades gracefully) even
+  though the cutscene remains blank for a different, deeper reason.
+  Further progress needs either Unity reverse-engineering or real DXVK/
+  MoltenVK cross-device shared-resource support, both out of scope.
 - **No packaged `dist/` yet.** `src/lithium` points directly at the dev
   build trees under `build/wine` and `build/dxvk`, not a relocatable,
   packaged runtime. Fine for single-machine development, not yet suitable

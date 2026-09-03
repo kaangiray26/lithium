@@ -57,7 +57,7 @@ If everything shows `OK` and it prints `Status: ready`, you're good to go.
 Each game gets its own Wine prefix (an isolated "Windows install"):
 
 ```
-uv run lithium prefix-create <name>
+uv run lithium prefix create <name>
 ```
 
 The **first boot is genuinely slow** (several minutes) under Rosetta 2 —
@@ -106,7 +106,7 @@ uv run lithium winetricks <name> vcrun2019 dotnet48
 You can also fold this into prefix creation in one step:
 
 ```
-uv run lithium prefix-create <name> --with vcrun2019,dotnet48
+uv run lithium prefix create <name> --with vcrun2019,dotnet48
 ```
 
 ### 3. Run the game
@@ -125,14 +125,14 @@ Wine keeps a background session (`wineserver` + helper processes) running
 after a game closes, so it's fast to relaunch. To fully tear it down:
 
 ```
-uv run lithium prefix-kill <name>
+uv run lithium prefix kill <name>
 ```
 
 To delete a prefix entirely (prompts first; `--force` skips the prompt, and
-it refuses while a `wineserver` is still live — `prefix-kill` it first):
+it refuses while a `wineserver` is still live — `prefix kill` it first):
 
 ```
-uv run lithium prefix-remove <name>
+uv run lithium prefix remove <name>
 ```
 
 ## Approach

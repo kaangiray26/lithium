@@ -1,8 +1,8 @@
 """Basic test coverage for the lithium CLI (src/lithium).
 
 Covers pure helper functions, the env/command plumbing in
-lithium_wine_exec/lithium_winetricks_exec, and the doctor/prefix-create/
-prefix-kill commands -- all via mocked subprocess calls and a tmp_path
+lithium_wine_exec/lithium_winetricks_exec, and the doctor/`prefix create`/
+`prefix kill` commands -- all via mocked subprocess calls and a tmp_path
 filesystem, so no real Wine/DXVK/MoltenVK build is needed to run these.
 """
 
@@ -455,7 +455,7 @@ def test_ps_command_lists_idle_prefix(monkeypatch, tmp_path):
 
 def test_prefix_list_no_prefixes(monkeypatch, tmp_path):
     monkeypatch.setattr(lithium, "PREFIXES_DIR", tmp_path / "no-such-dir")
-    result = runner.invoke(lithium.app, ["prefix-list"])
+    result = runner.invoke(lithium.app, ["prefix", "list"])
     assert result.exit_code == 0
     assert "No prefixes found" in result.stdout
 
@@ -466,7 +466,7 @@ def test_prefix_list_shows_initialized_and_uninitialized(monkeypatch, tmp_path):
     (prefixes_dir / "half-created").mkdir(parents=True)
     monkeypatch.setattr(lithium, "PREFIXES_DIR", prefixes_dir)
 
-    result = runner.invoke(lithium.app, ["prefix-list"])
+    result = runner.invoke(lithium.app, ["prefix", "list"])
     assert result.exit_code == 0
     assert "ready" in result.stdout
     assert "yes" in result.stdout
@@ -486,7 +486,7 @@ def test_prefix_create_fails_if_already_exists(monkeypatch, tmp_path):
     existing = tmp_path / "prefixes" / "silksong"
     existing.mkdir(parents=True)
 
-    result = runner.invoke(lithium.app, ["prefix-create", "silksong"])
+    result = runner.invoke(lithium.app, ["prefix", "create", "silksong"])
     assert result.exit_code == 1
     # typer.echo(..., err=True) goes to stderr, which CliRunner only
     # surfaces via .output, not .stdout
@@ -523,7 +523,7 @@ def test_prefix_create_with_deps_runs_winetricks(monkeypatch, tmp_path):
     monkeypatch.setattr(lithium.subprocess, "run", fake_run)
 
     result = runner.invoke(
-        lithium.app, ["prefix-create", "silksong", "--with", "vcrun2019, dotnet48"]
+        lithium.app, ["prefix", "create", "silksong", "--with", "vcrun2019, dotnet48"]
     )
     assert result.exit_code == 0, result.output
 
@@ -539,7 +539,7 @@ def test_prefix_create_with_requires_winetricks_installed(monkeypatch, tmp_path)
     monkeypatch.setattr(lithium, "PREFIXES_DIR", tmp_path / "prefixes")
     monkeypatch.setattr(lithium.shutil, "which", lambda _name: None)
 
-    result = runner.invoke(lithium.app, ["prefix-create", "silksong", "--with", "vcrun2019"])
+    result = runner.invoke(lithium.app, ["prefix", "create", "silksong", "--with", "vcrun2019"])
     assert result.exit_code == 1
     assert "needs winetricks" in result.output
     # bailed before creating anything
@@ -552,7 +552,7 @@ def test_prefix_create_with_empty_verbs_errors(monkeypatch, tmp_path):
     monkeypatch.setattr(lithium, "WINE_BIN", wine_bin)
     monkeypatch.setattr(lithium, "PREFIXES_DIR", tmp_path / "prefixes")
 
-    result = runner.invoke(lithium.app, ["prefix-create", "silksong", "--with", " , "])
+    result = runner.invoke(lithium.app, ["prefix", "create", "silksong", "--with", " , "])
     assert result.exit_code == 1
     assert "lists no verbs" in result.output
 
@@ -625,7 +625,7 @@ def test_prefix_kill_fails_if_missing(monkeypatch, tmp_path):
     monkeypatch.setattr(lithium, "WINE_BIN", wine_bin)
     monkeypatch.setattr(lithium, "PREFIXES_DIR", tmp_path / "prefixes")
 
-    result = runner.invoke(lithium.app, ["prefix-kill", "does-not-exist"])
+    result = runner.invoke(lithium.app, ["prefix", "kill", "does-not-exist"])
     assert result.exit_code == 1
     assert "no such prefix" in result.output
 
@@ -635,7 +635,7 @@ def test_prefix_kill_fails_if_missing(monkeypatch, tmp_path):
 
 def test_prefix_remove_fails_if_missing(monkeypatch, tmp_path):
     monkeypatch.setattr(lithium, "PREFIXES_DIR", tmp_path / "prefixes")
-    result = runner.invoke(lithium.app, ["prefix-remove", "does-not-exist"])
+    result = runner.invoke(lithium.app, ["prefix", "remove", "does-not-exist"])
     assert result.exit_code == 1
     assert "no such prefix" in result.output
 
@@ -646,7 +646,7 @@ def test_prefix_remove_deletes_with_force(monkeypatch, tmp_path):
     monkeypatch.setattr(lithium, "PREFIXES_DIR", prefixes_dir)
     monkeypatch.setattr(lithium, "_wineserver_pids", lambda: [])
 
-    result = runner.invoke(lithium.app, ["prefix-remove", "silksong", "--force"])
+    result = runner.invoke(lithium.app, ["prefix", "remove", "silksong", "--force"])
     assert result.exit_code == 0
     assert not (prefixes_dir / "silksong").exists()
     assert "Removed prefix 'silksong'" in result.output
@@ -658,7 +658,7 @@ def test_prefix_remove_aborts_without_confirmation(monkeypatch, tmp_path):
     monkeypatch.setattr(lithium, "PREFIXES_DIR", prefixes_dir)
     monkeypatch.setattr(lithium, "_wineserver_pids", lambda: [])
 
-    result = runner.invoke(lithium.app, ["prefix-remove", "silksong"], input="n\n")
+    result = runner.invoke(lithium.app, ["prefix", "remove", "silksong"], input="n\n")
     assert result.exit_code != 0
     assert (prefixes_dir / "silksong").exists()
 
@@ -670,7 +670,7 @@ def test_prefix_remove_refuses_while_wineserver_live(monkeypatch, tmp_path):
     monkeypatch.setattr(lithium, "_wineserver_pids", lambda: [4242])
     monkeypatch.setattr(lithium, "_wineserver_prefix", lambda pid: "silksong")
 
-    result = runner.invoke(lithium.app, ["prefix-remove", "silksong", "--force"])
+    result = runner.invoke(lithium.app, ["prefix", "remove", "silksong", "--force"])
     assert result.exit_code == 1
     assert "live wineserver" in result.output
     assert (prefixes_dir / "silksong").exists()

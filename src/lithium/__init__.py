@@ -23,6 +23,9 @@ app = typer.Typer(
     help="Manage Wine prefixes and launch games. Prefixes live under: prefixes/<name>",
 )
 
+prefix_app = typer.Typer(no_args_is_help=True, help="Manage Wine prefixes.")
+app.add_typer(prefix_app, name="prefix")
+
 LITHIUM_ROOT = Path(__file__).resolve().parent.parent.parent
 
 # Source checkouts cloned/built by `lithium build`, kept inside the project
@@ -37,7 +40,7 @@ WINESERVER_BIN = WINE_BUILD_DIR / "server" / "wineserver"
 
 DXVK_MESON_BUILD_DIR = LITHIUM_ROOT / "build" / "dxvk"
 DXVK_BUILD_DIR = DXVK_MESON_BUILD_DIR / "src"
-# (subdir, dllname) pairs, copied into the prefix's system32 on prefix-create
+# (subdir, dllname) pairs, copied into the prefix's system32 on prefix create
 DXVK_DLLS = [
     ("d3d8", "d3d8.dll"),
     ("d3d9", "d3d9.dll"),
@@ -559,7 +562,7 @@ def doctor() -> None:
         raise typer.Exit(1)
 
 
-@app.command("prefix-list")
+@prefix_app.command("list")
 def prefix_list() -> None:
     """List existing Wine prefixes."""
     console = Console()
@@ -575,7 +578,7 @@ def prefix_list() -> None:
 
     for prefix_dir in sorted(p for p in PREFIXES_DIR.iterdir() if p.is_dir()):
         # A prefix is "initialized" once wineboot has actually run against
-        # it (prefix-create's first step) -- drive_c only exists after that.
+        # it (prefix create's first step) -- drive_c only exists after that.
         initialized = (prefix_dir / "drive_c").is_dir()
         init_cell = "[green]yes[/green]" if initialized else "[yellow]no[/yellow]"
         table.add_row(prefix_dir.name, init_cell, str(prefix_dir))
@@ -583,7 +586,7 @@ def prefix_list() -> None:
     console.print(table)
 
 
-@app.command("prefix-create")
+@prefix_app.command("create")
 def prefix_create(
     name: str = typer.Argument(..., help="Name of the prefix to create"),
     with_: Optional[str] = typer.Option(
@@ -643,7 +646,7 @@ def prefix_create(
     typer.echo(f"Prefix '{name}' ready.")
 
 
-@app.command("prefix-kill")
+@prefix_app.command("kill")
 def prefix_kill(name: str = typer.Argument(..., help="Name of the prefix to shut down")) -> None:
     """Cleanly shut down a prefix's Wine session."""
     require_wine_build()
@@ -657,7 +660,7 @@ def prefix_kill(name: str = typer.Argument(..., help="Name of the prefix to shut
     raise typer.Exit(returncode)
 
 
-@app.command("prefix-remove")
+@prefix_app.command("remove")
 def prefix_remove(
     name: str = typer.Argument(..., help="Name of the prefix to delete"),
     force: bool = typer.Option(False, "--force", "-f", help="Skip the confirmation prompt"),
@@ -666,7 +669,7 @@ def prefix_remove(
 
     Refuses to run while the prefix still has a live wineserver -- deleting
     a prefix out from under a running session corrupts wineserver's lock
-    state (the same reason `prefix-kill` exists). Kill it first.
+    state (the same reason `prefix kill` exists). Kill it first.
     """
     prefix_dir = prefix_path(name)
     if not prefix_dir.is_dir():
@@ -677,7 +680,7 @@ def prefix_remove(
         if _wineserver_prefix(pid) == name:
             typer.echo(
                 f"error: prefix '{name}' has a live wineserver (PID {pid}); "
-                f"run 'lithium prefix-kill {name}' first",
+                f"run 'lithium prefix kill {name}' first",
                 err=True,
             )
             raise typer.Exit(1)
@@ -784,7 +787,7 @@ def winetricks(
     """Install common Windows dependencies (VC++ redist, .NET, etc.) via winetricks."""
     prefix_dir = prefix_path(name)
     if not prefix_dir.is_dir():
-        typer.echo(f"error: no such prefix: {name} (run 'lithium prefix-create {name}' first)", err=True)
+        typer.echo(f"error: no such prefix: {name} (run 'lithium prefix create {name}' first)", err=True)
         raise typer.Exit(1)
 
     returncode = lithium_winetricks_exec(prefix_dir, *verbs)
@@ -808,7 +811,7 @@ def _run_exe(name: str, exe: str, args: list[str], debug: Optional[str] = None) 
 
     prefix_dir = prefix_path(name)
     if not prefix_dir.is_dir():
-        typer.echo(f"error: no such prefix: {name} (run 'lithium prefix-create {name}' first)", err=True)
+        typer.echo(f"error: no such prefix: {name} (run 'lithium prefix create {name}' first)", err=True)
         raise typer.Exit(1)
 
     # Preflight the target path -- a typo otherwise fails deep inside Wine

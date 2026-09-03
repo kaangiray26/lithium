@@ -8,6 +8,7 @@ filesystem, so no real Wine/DXVK/MoltenVK build is needed to run these.
 
 import stat
 import subprocess
+import tarfile
 from pathlib import Path
 
 import pytest
@@ -332,6 +333,85 @@ def test_clean_moltenvk_flag_includes_package_dir(monkeypatch, tmp_path):
     result = runner.invoke(lithium.app, ["clean", "--moltenvk", "--force"])
     assert result.exit_code == 0
     assert not package_dir.exists()
+
+
+# --- package ---
+
+
+def _setup_packageable_stack(monkeypatch, tmp_path):
+    wine_bin = tmp_path / "build" / "wine" / "loader" / "wine"
+    make_executable(wine_bin)
+    monkeypatch.setattr(lithium, "WINE_BIN", wine_bin)
+    monkeypatch.setattr(lithium, "WINE_BUILD_DIR", tmp_path / "build" / "wine")
+    monkeypatch.setattr(lithium, "WINE_SRC", tmp_path / "external" / "wine")
+    monkeypatch.setattr(lithium, "MOLTENVK_SRC", tmp_path / "external" / "MoltenVK-src")
+    monkeypatch.setattr(lithium, "DXVK_MESON_BUILD_DIR", tmp_path / "build" / "dxvk")
+    monkeypatch.setattr(lithium, "DIST_DIR", tmp_path / "dist")
+
+    dxvk_build_dir = tmp_path / "build" / "dxvk" / "src"
+    for sub, dll in lithium.DXVK_DLLS:
+        dll_path = dxvk_build_dir / sub / dll
+        dll_path.parent.mkdir(parents=True, exist_ok=True)
+        dll_path.write_bytes(b"fake-dll")
+    monkeypatch.setattr(lithium, "DXVK_BUILD_DIR", dxvk_build_dir)
+
+    moltenvk_dir = tmp_path / "external" / "MoltenVK"
+    (moltenvk_dir / "libMoltenVK.dylib").parent.mkdir(parents=True, exist_ok=True)
+    (moltenvk_dir / "libMoltenVK.dylib").write_bytes(b"fake-dylib")
+    monkeypatch.setattr(lithium, "MOLTENVK_DYLIB_DIR", moltenvk_dir)
+
+    def fake_run(command, cwd=None, env=None):
+        destdir = next(arg.split("=", 1)[1] for arg in command if arg.startswith("DESTDIR="))
+        bin_dir = Path(destdir) / "usr" / "local" / "bin"
+        bin_dir.mkdir(parents=True, exist_ok=True)
+        (bin_dir / "wine").write_bytes(b"fake-installed-wine")
+
+        class Result:
+            returncode = 0
+
+        return Result()
+
+    monkeypatch.setattr(lithium.subprocess, "run", fake_run)
+
+
+def test_package_fails_when_build_incomplete(monkeypatch, tmp_path):
+    _setup_packageable_stack(monkeypatch, tmp_path)
+    monkeypatch.setattr(lithium, "WINE_BIN", tmp_path / "nonexistent-wine")
+
+    result = runner.invoke(lithium.app, ["package"])
+    assert result.exit_code == 1
+    assert "build is incomplete" in result.output
+    assert not (tmp_path / "dist").exists()
+
+
+def test_package_produces_archive_and_checksum(monkeypatch, tmp_path):
+    _setup_packageable_stack(monkeypatch, tmp_path)
+
+    result = runner.invoke(lithium.app, ["package"])
+    assert result.exit_code == 0, result.output
+
+    archives = list((tmp_path / "dist").glob("lithium-*-macos-*.tar.gz"))
+    assert len(archives) == 1
+    archive_path = archives[0]
+
+    checksum_path = archive_path.with_suffix(archive_path.suffix + ".sha256")
+    assert checksum_path.is_file()
+    assert lithium._sha256_file(archive_path) == checksum_path.read_text().split()[0]
+
+    with tarfile.open(archive_path) as tar:
+        names = tar.getnames()
+        base = names[0].split("/")[0]
+        assert f"{base}/manifest.json" in names
+        assert f"{base}/wine/bin/wine" in names
+        assert f"{base}/moltenvk/libMoltenVK.dylib" in names
+        for sub, dll in lithium.DXVK_DLLS:
+            assert f"{base}/dxvk/{sub}/{dll}" in names
+
+        import json
+
+        manifest = json.loads(tar.extractfile(f"{base}/manifest.json").read())
+        assert manifest["arch"] == "arm64"
+        assert manifest["wine_ref"] == "unknown"
 
 
 # --- doctor ---

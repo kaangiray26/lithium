@@ -387,24 +387,54 @@ by value-to-effort.
       VkInstance`, `GPU device: model: Apple M4 Pro`) with zero DXVK
       feature-rejection or `VK_ERROR_DEVICE_LOST` lines in the log, same
       as before the downgrade.
-- [ ] Package a real `dist/`: the CLI (`src/lithium`) currently hardcodes
+- [x] Package a real `dist/`: the CLI (`src/lithium`) currently hardcodes
       paths into the dev build trees (`build/wine`, `build/dxvk`) and
       `<project>/external/MoltenVK`. Lithium can't run on any other
       machine as-is. Only matters once this needs to be usable beyond this
       one dev Mac (see Phase 3's original "on-disk layout" item, still
       skipped).
-      **Deliberately deferred, not just unstarted**: this solves a
-      different problem than the reproducible-build work above. Pinned
-      refs + `lithium build` already answer "can I get Lithium running on
-      another machine" -- yes, by re-running the full build there (needs
-      full Xcode, two Homebrew prefixes, ~10GB of source checkouts, and
-      real build time). A `dist/` package would instead let you *copy
-      already-compiled binaries* over, skipping the toolchain and rebuild
-      entirely -- only worth the cost if either (a) another machine of
-      yours needs Lithium without waiting through a full rebuild, or
-      (b) Lithium is ever handed to someone else who shouldn't need a C/C++
-      toolchain just to play a game. Neither applies right now, so this
-      stays on the backlog rather than getting built speculatively.
+      **Was deliberately deferred, now done as the packaging half only**
+      (`lithium package`) -- scoped down from the original idea (package +
+      auto-download/consume + GitHub Releases publishing) to just producing
+      the redistributable archive; nothing consumes it automatically yet
+      (`lithium build` still always compiles from source). Chosen
+      explicitly over the larger scope since the consume/publish sides are
+      separable follow-ups, not needed to get real value out of this one.
+      **Real engineering finding along the way**: tarring up `build/wine`
+      directly doesn't work -- it's ~6GB (mostly `.o` files) and its
+      Makefile bakes in absolute source paths for incremental rebuilds, so
+      a naive tarball would be both huge and broken once extracted
+      elsewhere. Used Wine's own `make install-lib DESTDIR=...` instead
+      (confirmed by reading the generated `Makefile`'s phony targets --
+      `install-lib` covers runtime `.dll`/`.so` files and the `bin/wine`,
+      `bin/wineserver` binaries, while `install-dev`/full `install` also
+      pull in headers, static `.a` import libs, and man pages that aren't
+      needed at runtime). Verified for real, twice: first that `make
+      install-lib` into a scratch `DESTDIR` produces a working, ~1.6GB
+      tree (vs 6.3GB) that runs correctly when copied to `/tmp` and pointed
+      at a real prefix (`wine cmd /c echo ...` worked); then again against
+      the actual `lithium package` output -- extracted the real
+      `dist/lithium-0.1.1-macos-arm64.tar.gz` (537MB compressed) to a fresh
+      `/tmp` directory and ran its `wine/bin/wine` binary against the real
+      Silksong prefix with `DYLD_FALLBACK_LIBRARY_PATH` pointed at the
+      *packaged* `moltenvk/libMoltenVK.dylib` (not the dev build's copy) --
+      it created a real `VkInstance` and ran cleanly.
+      Archive layout: `<base>/manifest.json` (lithium version, arch,
+      `wine_ref`/`moltenvk_ref` via the existing `_git_describe()`,
+      `dxvk_version` via the existing `_dxvk_version()`, creation
+      timestamp), `<base>/wine/` (the `install-lib` tree), `<base>/dxvk/
+      <subdir>/<dll>` (the same 5 DLLs `prefix create` copies into
+      prefixes), `<base>/moltenvk/libMoltenVK.dylib`. A `.sha256` sidecar
+      file is written next to the archive. `lithium package` refuses to
+      run (before touching anything) if `lithium build`'s output is
+      incomplete, listing exactly what's missing, same pattern as
+      `doctor`. Added 2 tests (incomplete-build error path, real archive
+      contents via `tarfile`) -- 50 total, all passing.
+      **Still open, not done here**: nothing downloads or extracts this
+      archive automatically (no `lithium build --from-dist`), and nothing
+      publishes it anywhere (no GitHub Release integration) -- both
+      deliberately out of scope for this pass, pick up if/when actually
+      needed.
 - [x] Add automated tests for the `lithium` CLI (`src/lithium`) -- zero
       test coverage currently. Even basic tests (path resolution, env var
       construction, `doctor` logic) would catch regressions as the tool

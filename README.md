@@ -156,6 +156,22 @@ it refuses while a `wineserver` is still live — `prefix kill` it first):
 lithium prefix remove <name>
 ```
 
+## Packaging (advanced)
+
+Once `lithium build` has produced a working stack, you can package the
+compiled Wine + DXVK + MoltenVK binaries into a single redistributable
+archive instead of re-running the full source build on another machine:
+
+```
+lithium package
+```
+
+This produces `dist/lithium-<version>-macos-arm64.tar.gz` (plus a
+`.sha256` checksum file) — self-contained, works if extracted anywhere.
+There's no automated way to *consume* the archive yet (no `lithium build
+--from-dist`); it's up to you to extract it and wire the paths up, or host
+it somewhere (e.g. a GitHub Release) for now.
+
 ## Approach
 
 Apple Silicon has no native x86_64 CPU and no native Vulkan/DirectX, so two

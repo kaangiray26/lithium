@@ -6,11 +6,18 @@ than a packaged dist/ (see docs/plan.md phase 5/6) -- adjust the paths
 below if you relocate things.
 """
 
+import hashlib
+import importlib.metadata
+import io
+import json
 import os
 import platform
 import re
 import shutil
 import subprocess
+import tarfile
+import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -86,6 +93,7 @@ MOLTENVK_DYLIB_DIR = Path(
 )
 
 PREFIXES_DIR = LITHIUM_ROOT / "prefixes"
+DIST_DIR = LITHIUM_ROOT / "dist"
 
 # Extra x86_64 Homebrew tool/lib locations Wine's build and runtime need.
 # See docs memory: bison (macOS ships a too-old one), mingw-w64, and the
@@ -538,6 +546,105 @@ def clean(
         typer.echo(f"Removed {target}")
 
     typer.echo("Done. Run 'lithium build' to rebuild.")
+
+
+def _install_wine_runtime(dest_dir: Path) -> Path:
+    """`make install-lib` into dest_dir, producing a relocatable Wine runtime tree.
+
+    Tarring up build/wine directly isn't viable: it's ~6GB of object files
+    and its Makefile bakes in absolute source paths (fine for incremental
+    rebuilds in place, broken the moment it's copied elsewhere). The
+    `install-lib` target instead produces a stripped, ~1.6GB tree (bin/,
+    lib/wine/, share/wine/) with none of that -- confirmed empirically by
+    running the installed wine binary from a copied-elsewhere tree against
+    a real prefix. `install-lib` (vs plain `install`) skips dev headers,
+    static import libs, and man pages, none of which are needed at
+    runtime. Configure was run without --prefix, so its default (/usr/local)
+    is where DESTDIR lands the tree.
+    """
+    _run(["arch", "-x86_64", "make", "install-lib", f"DESTDIR={dest_dir}"], cwd=WINE_BUILD_DIR)
+    return dest_dir / "usr" / "local"
+
+
+def _package_manifest(version: str, arch: str) -> dict:
+    return {
+        "lithium_version": version,
+        "arch": arch,
+        "created": datetime.now(timezone.utc).isoformat(),
+        "wine_ref": _git_describe(WINE_SRC) or "unknown",
+        "moltenvk_ref": _git_describe(MOLTENVK_SRC) or "unknown",
+        "dxvk_version": _dxvk_version() or "unknown",
+    }
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+@app.command()
+def package() -> None:
+    """Package the already-built Wine + DXVK + MoltenVK stack into a redistributable archive.
+
+    Produces dist/lithium-<version>-macos-<arch>.tar.gz (plus a .sha256
+    sidecar) from whatever `lithium build` already produced on this
+    machine -- doesn't build anything itself; run `lithium build` /
+    `lithium doctor` first. Upload the archive wherever you want to serve
+    it from (e.g. a GitHub Release); there's no automated publish/consume
+    side yet, this only produces the artifact.
+    """
+    if platform.system() != "Darwin" or platform.machine() != "arm64":
+        typer.echo("error: `lithium package` targets Apple Silicon macOS only", err=True)
+        raise typer.Exit(1)
+
+    missing = []
+    if not os.access(WINE_BIN, os.X_OK):
+        missing.append(f"Wine binary ({WINE_BIN})")
+    for sub, dll in DXVK_DLLS:
+        path = DXVK_BUILD_DIR / sub / dll
+        if not path.is_file():
+            missing.append(f"DXVK {dll} ({path})")
+    moltenvk_dylib = MOLTENVK_DYLIB_DIR / "libMoltenVK.dylib"
+    if not moltenvk_dylib.is_file():
+        missing.append(f"MoltenVK dylib ({moltenvk_dylib})")
+    if missing:
+        typer.echo("error: build is incomplete (run 'lithium build' first). Missing:", err=True)
+        for item in missing:
+            typer.echo(f"  - {item}", err=True)
+        raise typer.Exit(1)
+
+    version = importlib.metadata.version("lithium-cli")
+    arch = platform.machine()
+    base_name = f"lithium-{version}-macos-{arch}"
+
+    DIST_DIR.mkdir(parents=True, exist_ok=True)
+    archive_path = DIST_DIR / f"{base_name}.tar.gz"
+
+    with tempfile.TemporaryDirectory() as tmp:
+        _log("Installing Wine runtime tree (make install-lib)...")
+        wine_tree = _install_wine_runtime(Path(tmp))
+
+        _log(f"Writing {archive_path.name}...")
+        manifest_bytes = json.dumps(_package_manifest(version, arch), indent=2).encode()
+
+        with tarfile.open(archive_path, "w:gz") as tar:
+            info = tarfile.TarInfo(name=f"{base_name}/manifest.json")
+            info.size = len(manifest_bytes)
+            tar.addfile(info, io.BytesIO(manifest_bytes))
+
+            tar.add(wine_tree, arcname=f"{base_name}/wine")
+            for sub, dll in DXVK_DLLS:
+                tar.add(DXVK_BUILD_DIR / sub / dll, arcname=f"{base_name}/dxvk/{sub}/{dll}")
+            tar.add(moltenvk_dylib, arcname=f"{base_name}/moltenvk/libMoltenVK.dylib")
+
+    sha256 = _sha256_file(archive_path)
+    (DIST_DIR / f"{base_name}.tar.gz.sha256").write_text(f"{sha256}  {base_name}.tar.gz\n")
+
+    size_mb = archive_path.stat().st_size / (1024 * 1024)
+    _log(f"Done: {archive_path} ({size_mb:.0f} MB, sha256 {sha256[:12]}...)")
 
 
 @app.command()

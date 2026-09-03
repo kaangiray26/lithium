@@ -1,5 +1,5 @@
 [project]
-name = "lithium"
+name = "lithium-cli"
 version = "0.1.0"
 description = "Compatibility tool for macOS based on Valve's Proton and additional components"
 readme = "README.md"
@@ -18,6 +18,9 @@ lithium = "lithium:app"
 [build-system]
 requires = ["uv_build>=0.11.14,<0.12.0"]
 build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "lithium"
 
 [dependency-groups]
 dev = [

@@ -1,4 +1,4 @@
-<img src="docs/images/lithium.svg" alt="lithium" width="256" />
+<img src="https://raw.githubusercontent.com/kaangiray26/lithium/refs/heads/main/docs/images/lithium.svg" alt="lithium" width="256" />
 
 # Lithium
 Compatibility tool for macOS based on Valve's Proton and additional components

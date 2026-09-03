@@ -26,7 +26,36 @@ app = typer.Typer(
 prefix_app = typer.Typer(no_args_is_help=True, help="Manage Wine prefixes.")
 app.add_typer(prefix_app, name="prefix")
 
-LITHIUM_ROOT = Path(__file__).resolve().parent.parent.parent
+# The installed package itself -- always correct regardless of how lithium
+# got here, since it's just "the directory this file lives in". Used to
+# find bundled package data (patches/) that ships with the wheel.
+PACKAGE_DIR = Path(__file__).resolve().parent
+
+
+def _detect_lithium_root() -> Path:
+    """Where build/, external/, and prefixes/ live.
+
+    Two cases:
+    - Dev checkout (`src/lithium/__init__.py`): use the repo root, so
+      everything lands next to docs/, patches/, etc. as it always has.
+      Detected by the package sitting inside a directory literally named
+      "src" -- true for any src-layout checkout, never true for an
+      installed wheel (pip/uv install flattens straight into
+      site-packages, no "src" directory survives).
+    - Installed standalone (`uv tool install lithium-cli` / `pip install
+      lithium-cli`, no repo around at all): use a real per-user data
+      directory instead, since there's nothing to be "next to".
+    """
+    if PACKAGE_DIR.parent.name == "src":
+        return PACKAGE_DIR.parent.parent
+
+    override = os.environ.get("LITHIUM_DATA_DIR")
+    if override:
+        return Path(override)
+    return Path.home() / "Library" / "Application Support" / "lithium"
+
+
+LITHIUM_ROOT = _detect_lithium_root()
 
 # Source checkouts cloned/built by `lithium build`, kept inside the project
 # (not e.g. ~/external) so that cloning the repo + running `lithium build`
@@ -97,9 +126,12 @@ MOLTENVK_REF = "v1.4.2"  # latest stable tag as of writing; no v1.4.3 tag yet
 PROTON_SRC = EXTERNAL_DIR / "Proton"
 PROTON_REF = "proton-11.0-2"  # latest stable tag as of writing
 DXVK_SRC = PROTON_SRC / "dxvk"  # pinned via PROTON_REF's recorded submodule commit
-DXVK_PATCH = LITHIUM_ROOT / "patches" / "dxvk-apple-silicon.patch"
+# Patches ship as package data (PACKAGE_DIR, not LITHIUM_ROOT) so they're
+# available whether lithium is a dev checkout or an installed wheel --
+# LITHIUM_ROOT/patches only exists in the former.
+DXVK_PATCH = PACKAGE_DIR / "patches" / "dxvk-apple-silicon.patch"
 WINE_PATCHES = [
-    LITHIUM_ROOT / "patches" / "wine-mfplat-shared-video-texture.patch",
+    PACKAGE_DIR / "patches" / "wine-mfplat-shared-video-texture.patch",
 ]
 BISON_PATH = "/opt/homebrew/opt/bison/bin"
 

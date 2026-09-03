@@ -706,6 +706,48 @@ Safety / correctness:
       those itself. Covers both `run` and `install` (shared code path).
       Added 4 tests -- 38 total, all passing.
 
+Published to PyPI:
+- [x] Published as `lithium-cli` on PyPI (`lithium` itself was taken).
+      PyPI distribution name and the `[project.name]` in `pyproject.toml`
+      don't need to match the import name or CLI command -- kept `import
+      lithium` and the `lithium` command exactly as they were (standard
+      pattern, e.g. `beautifulsoup4` -> `import bs4`). Needed
+      `[tool.uv.build-backend] module-name = "lithium"` so `uv_build`
+      looks in `src/lithium/` instead of expecting `src/lithium_cli/`.
+      **Publishing surfaced a real bug, caught before it shipped broadly**:
+      `LITHIUM_ROOT` was computed as "wherever the installed file lives,
+      three directories up" -- correct for a dev checkout (`src/lithium/
+      __init__.py` -> repo root) but resolved to nonsense
+      (`~/.local/share/uv/tools/lithium-cli/lib/python3.12`) under a real
+      `uv tool install lithium-cli`, confirmed by actually running it, not
+      just reasoning about it. Worse, `patches/*.patch` were top-level
+      repo files, never included in the published wheel at all, so even
+      fixing the root path, `lithium build` would have failed applying a
+      patch that didn't exist in the installed package. Fixed both:
+      moved `patches/` into `src/lithium/patches/` (ships as package data
+      automatically -- `uv_build` includes non-`.py` files inside the
+      module directory with no extra config, confirmed by inspecting the
+      built wheel's contents directly) and referenced via a new
+      `PACKAGE_DIR` constant instead of `LITHIUM_ROOT`; added
+      `_detect_lithium_root()`, which checks whether the package sits
+      inside a directory literally named `src` (true for any src-layout
+      dev checkout, never true for an installed wheel -- pip/uv installs
+      flatten straight into `site-packages`) to decide between the repo
+      root (dev) and `~/Library/Application Support/lithium` (standalone,
+      overridable via `LITHIUM_DATA_DIR`). Verified for real end-to-end,
+      not just unit tests: built the wheel, ran `uv tool install` against
+      it locally, confirmed `LITHIUM_ROOT` now resolves to the Application
+      Support path and both patches resolve to real, bundled files inside
+      the installed package. This is a different, narrower fix than the
+      still-open "package a real `dist/`" item above -- that one is about
+      shipping *pre-built* binaries; this just makes `lithium build`
+      (still compiles everything from source) work correctly regardless
+      of install method. Bumped to `0.1.1`. Added 4 tests -- 48 total, all
+      passing. README's Quickstart now leads with `uv tool install
+      lithium-cli` as the primary path for people who just want to play
+      games, with the repo-checkout + `uv sync` path kept for developing
+      Lithium itself.
+
 ## Risks — confirmed, and new ones found along the way
 
 Original risks, both confirmed true in practice:

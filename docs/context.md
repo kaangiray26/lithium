@@ -111,7 +111,7 @@ details (known limitations, status) that don't belong in a checklist.
   the last Wine-controlled point before a shared-D3D11-resource request
   reaches DXVK -- and patched it to skip the `MF_SA_D3D11_SHARED*`
   attributes instead of requesting a resource type no non-Windows Vulkan
-  driver can ever provide (`patches/wine-mfplat-shared-video-texture.patch`,
+  driver can ever provide (`src/lithium/patches/wine-mfplat-shared-video-texture.patch`,
   applied automatically by `lithium build`). Verified for real: the DXVK
   error is completely gone, and Wine's decode pipeline now runs flawlessly
   end-to-end -- all 392 frames of the cutscene decode, color-convert, and

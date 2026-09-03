@@ -8,6 +8,7 @@ filesystem, so no real Wine/DXVK/MoltenVK build is needed to run these.
 
 import stat
 import subprocess
+from pathlib import Path
 
 import pytest
 from typer.testing import CliRunner
@@ -35,6 +36,42 @@ def test_dyld_wrapped_command():
 
 def test_prefix_path():
     assert lithium.prefix_path("silksong") == lithium.PREFIXES_DIR / "silksong"
+
+
+# --- LITHIUM_ROOT detection (dev checkout vs installed standalone) ---
+
+
+def test_detect_lithium_root_dev_checkout(monkeypatch, tmp_path):
+    repo_root = tmp_path / "some-checkout"
+    package_dir = repo_root / "src" / "lithium"
+    package_dir.mkdir(parents=True)
+    monkeypatch.setattr(lithium, "PACKAGE_DIR", package_dir)
+    assert lithium._detect_lithium_root() == repo_root
+
+
+def test_detect_lithium_root_installed_uses_app_support(monkeypatch, tmp_path):
+    site_packages_lithium = tmp_path / "site-packages" / "lithium"
+    site_packages_lithium.mkdir(parents=True)
+    monkeypatch.setattr(lithium, "PACKAGE_DIR", site_packages_lithium)
+    monkeypatch.delenv("LITHIUM_DATA_DIR", raising=False)
+    assert lithium._detect_lithium_root() == Path.home() / "Library" / "Application Support" / "lithium"
+
+
+def test_detect_lithium_root_installed_respects_override(monkeypatch, tmp_path):
+    site_packages_lithium = tmp_path / "site-packages" / "lithium"
+    site_packages_lithium.mkdir(parents=True)
+    monkeypatch.setattr(lithium, "PACKAGE_DIR", site_packages_lithium)
+    monkeypatch.setenv("LITHIUM_DATA_DIR", str(tmp_path / "custom-data-dir"))
+    assert lithium._detect_lithium_root() == tmp_path / "custom-data-dir"
+
+
+def test_patches_are_bundled_as_package_data():
+    assert lithium.DXVK_PATCH.is_file()
+    for patch_path in lithium.WINE_PATCHES:
+        assert patch_path.is_file()
+    # Bundled under the package itself, not the dev-checkout LITHIUM_ROOT --
+    # this is what makes them ship inside an installed wheel.
+    assert lithium.PACKAGE_DIR in lithium.DXVK_PATCH.parents
 
 
 def test_require_wine_build_missing(monkeypatch, tmp_path):

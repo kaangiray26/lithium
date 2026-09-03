@@ -1,6 +1,6 @@
 [project]
 name = "lithium-cli"
-version = "0.1.0"
+version = "0.1.1"
 description = "Compatibility tool for macOS based on Valve's Proton and additional components"
 readme = "README.md"
 authors = [

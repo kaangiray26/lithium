@@ -8,27 +8,48 @@ components (WineHQ Wine, Valve's DXVK/vkd3d-proton, Khronos's MoltenVK)
 rather than Apple's private Game Porting Toolkit engine. Full roadmap and
 architecture rationale: [`docs/plan.md`](docs/plan.md).
 
-## Quickstart
+## Install
 
-The `lithium` CLI is a Python package (`src/lithium/`, built with
-[Typer](https://typer.tiangolo.com/)) managed with [uv](https://docs.astral.sh/uv/).
-Install it once:
+**As a standalone tool** (recommended if you just want to play games,
+not develop Lithium itself):
 
 ```
+uv tool install lithium-cli
+```
+
+This puts a `lithium` command on your PATH, published from this repo's
+`src/lithium/` package (built with [Typer](https://typer.tiangolo.com/)).
+Everything Lithium builds/stores (Wine, DXVK, MoltenVK, prefixes) lands
+under `~/Library/Application Support/lithium` in this mode — override
+with the `LITHIUM_DATA_DIR` environment variable if you want it
+elsewhere.
+
+**From a repo checkout** (for developing Lithium itself):
+
+```
+git clone https://github.com/kaangiray26/lithium.git
+cd lithium
 uv sync
 ```
 
-Then run commands with `uv run lithium ...` (or activate `.venv` and just
-run `lithium ...` directly).
+Then run commands with `uv run lithium ...` (or activate `.venv` and
+just run `lithium ...` directly). Everything lands inside the repo
+(`build/`, `external/`, `prefixes/`) instead of `~/Library/Application
+Support/lithium`.
 
-**Prerequisite: Wine, DXVK, and MoltenVK must already be built** under
-`build/wine`, `build/dxvk`, and `external/MoltenVK` respectively. Full
+Every command below is written as `lithium ...` — if you're working
+from a repo checkout instead of a standalone install, prefix each one
+with `uv run`.
+
+## Quickstart
+
+**Prerequisite: Wine, DXVK, and MoltenVK must already be built.** Full
 Xcode (not just the Command Line Tools) must be installed and selected
 first — `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer`
 — then run:
 
 ```
-uv run lithium build
+lithium build
 ```
 
 This installs the Homebrew dependencies (both the arm64 build tools and a
@@ -41,13 +62,13 @@ To force a real from-scratch rebuild (e.g. after moving the source
 trees), wipe the build output first:
 
 ```
-uv run lithium clean        # wipes build/wine and build/dxvk
-uv run lithium clean --moltenvk   # also wipes external/MoltenVK/Package
+lithium clean             # wipes build/wine and build/dxvk
+lithium clean --moltenvk  # also wipes external/MoltenVK/Package
 ```
 Run `lithium doctor` to check whether the stack is already in place:
 
 ```
-uv run lithium doctor
+lithium doctor
 ```
 
 If everything shows `OK` and it prints `Status: ready`, you're good to go.
@@ -57,7 +78,7 @@ If everything shows `OK` and it prints `Status: ready`, you're good to go.
 Each game gets its own Wine prefix (an isolated "Windows install"):
 
 ```
-uv run lithium prefix create <name>
+lithium prefix create <name>
 ```
 
 The **first boot is genuinely slow** (several minutes) under Rosetta 2 —
@@ -76,7 +97,7 @@ hit friction — see `docs/context.md` for known limitations.
   `prefixes/<name>/drive_c/Games/<game>/` and skip to step 3.
 - **If you have a Windows installer**, try:
   ```
-  uv run lithium install <name> /path/to/setup.exe
+  lithium install <name> /path/to/setup.exe
   ```
   **Caveat**: if the installer is a classic **InnoSetup** installer (common
   for GOG-style offline installers) and its stub is **32-bit**, this can
@@ -100,19 +121,19 @@ Lithium doesn't reimplement dependency management — it wires up
 winetricks`) against your own Wine build:
 
 ```
-uv run lithium winetricks <name> vcrun2019 dotnet48
+lithium winetricks <name> vcrun2019 dotnet48
 ```
 
 You can also fold this into prefix creation in one step:
 
 ```
-uv run lithium prefix create <name> --with vcrun2019,dotnet48
+lithium prefix create <name> --with vcrun2019,dotnet48
 ```
 
 ### 3. Run the game
 
 ```
-uv run lithium run <name> "prefixes/<name>/drive_c/Games/<game>/Game.exe"
+lithium run <name> "prefixes/<name>/drive_c/Games/<game>/Game.exe"
 ```
 
 This sets up `WINEPREFIX`, the DXVK DLL overrides, the MoltenVK/Homebrew
@@ -125,14 +146,14 @@ Wine keeps a background session (`wineserver` + helper processes) running
 after a game closes, so it's fast to relaunch. To fully tear it down:
 
 ```
-uv run lithium prefix kill <name>
+lithium prefix kill <name>
 ```
 
 To delete a prefix entirely (prompts first; `--force` skips the prompt, and
 it refuses while a `wineserver` is still live — `prefix kill` it first):
 
 ```
-uv run lithium prefix remove <name>
+lithium prefix remove <name>
 ```
 
 ## Approach

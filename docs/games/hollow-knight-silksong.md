@@ -18,7 +18,7 @@ install` — the installer's 32-bit InnoSetup stub hangs under
   (`VK_KHR_EXTERNAL_MEMORY_WIN32`, a Windows-only Vulkan extension no
   non-Windows Vulkan driver can implement) combined with Unity's Media
   Foundation video pipeline likely needing genuine cross-device D3D11
-  texture sharing. Partially patched (`patches/wine-mfplat-shared-
+  texture sharing. Partially patched (`src/lithium/patches/wine-mfplat-shared-
 video-texture.patch` eliminates the hard crash and lets the decode
   pipeline complete cleanly) but the video still doesn't visibly render.
   Gameplay itself is entirely unaffected — this is one skippable intro

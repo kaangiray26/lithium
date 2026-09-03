@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lithium — Compatibility tool for macOS</title>
+<meta name="description" content="Lithium runs unmodified Windows games on Apple Silicon Macs, built from open components: WineHQ Wine, Valve's DXVK, and Khronos's MoltenVK.">
+<style>
+  :root {
+    color-scheme: light;
+    --ink: #1a1a1a;
+    --line-strong: #333;
+    --line: #4d4d4d;
+    --line-soft: #999;
+    --surface: #f0f0f0;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+  }
+
+  body {
+    font-family: ui-monospace, "SF Mono", "Menlo", "Consolas", monospace;
+    background: #fff;
+    color: var(--ink);
+    line-height: 1.5;
+  }
+
+  main, .header-inner {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 0 24px;
+  }
+
+  main {
+    padding-bottom: 96px;
+  }
+
+  a {
+    color: var(--ink);
+  }
+
+  a:hover {
+    background: var(--ink);
+    color: #fff;
+  }
+
+  /* --- header --- */
+
+  header {
+    padding: 48px 0 24px;
+    text-align: center;
+  }
+
+  header img {
+    width: 96px;
+    height: 96px;
+    display: block;
+    margin: 0 auto 24px;
+  }
+
+  h1 {
+    font-size: 2rem;
+    margin: 0 0 8px;
+    letter-spacing: -0.02em;
+  }
+
+  .tagline {
+    margin: 0;
+    font-size: 1rem;
+  }
+
+  /* --- sections --- */
+
+  h2 {
+    font-size: 1.1rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--line-strong);
+    margin: 0 0 16px;
+  }
+
+  section {
+    margin-top: 64px;
+  }
+
+  p {
+    margin: 0 0 16px;
+  }
+
+  ul {
+    margin: 0 0 16px;
+    padding-left: 1.2em;
+  }
+
+  li {
+    margin-bottom: 8px;
+  }
+
+  /* --- code / pre --- */
+
+  code {
+    font-family: inherit;
+    background: var(--surface);
+    padding: 2px 4px;
+  }
+
+  pre {
+    border: 2px solid var(--line);
+    padding: 16px;
+    overflow-x: auto;
+    margin: 0 0 16px;
+    background: var(--surface);
+    cursor: pointer;
+    user-select: all;
+  }
+
+  pre code {
+    background: none;
+    padding: 0;
+  }
+
+  /* --- links list (nav / footer) --- */
+
+  .links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    padding: 0;
+    list-style: none;
+    margin: 0;
+  }
+
+  .links a {
+    display: inline-block;
+    border: 2px solid var(--line);
+    padding: 8px 16px;
+    text-decoration: none;
+  }
+
+  .links a:hover {
+    background: var(--ink);
+    color: #fff;
+  }
+
+  /* --- architecture diagram --- */
+
+  .stack {
+    border: 2px solid var(--line);
+    padding: 24px;
+    text-align: center;
+    color: var(--line-strong);
+  }
+
+  .stack div {
+    padding: 8px;
+  }
+
+  .stack .arrow {
+    font-weight: bold;
+    color: var(--line-soft);
+  }
+
+  footer {
+    margin-top: 96px;
+    padding: 24px;
+    text-align: center;
+    font-size: 0.9rem;
+    color: var(--line);
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-inner">
+    <img src="https://raw.githubusercontent.com/kaangiray26/lithium/refs/heads/main/docs/images/lithium.svg" alt="Lithium logo">
+    <h1>Lithium</h1>
+    <p class="tagline">Compatibility tool for macOS based on Valve's Proton and additional components</p>
+  </div>
+</header>
+
+<main>
+
+  <section id="about">
+    <h2>What is it</h2>
+    <p>
+      Lithium runs unmodified Windows games on Apple Silicon Macs, built
+      entirely from open components &mdash; WineHQ Wine, Valve's DXVK, and
+      Khronos's MoltenVK &mdash; rather than Apple's private Game Porting
+      Toolkit engine.
+    </p>
+    <p>
+      No emulation of Apple's private tooling, no black box: Wine loads
+      and runs the game's real x86_64 code under Rosetta&nbsp;2, DXVK
+      translates its DirectX calls to Vulkan, and MoltenVK translates
+      Vulkan to Metal.
+    </p>
+  </section>
+
+  <section id="install">
+    <h2>Install</h2>
+    <p>As a standalone tool:</p>
+    <pre><code>uv tool install lithium-cli</code></pre>
+    <p>Then build the stack (Wine, DXVK, MoltenVK) and you're ready to go:</p>
+    <pre><code>lithium build
+lithium doctor</code></pre>
+  </section>
+
+  <section id="quickstart">
+    <h2>Quickstart</h2>
+    <pre><code>lithium prefix create &lt;name&gt;
+lithium install &lt;name&gt; /path/to/setup.exe
+lithium run &lt;name&gt; "prefixes/&lt;name&gt;/drive_c/Games/&lt;game&gt;/Game.exe"</code></pre>
+  </section>
+
+  <section id="approach">
+    <h2>Approach</h2>
+    <div class="stack">
+      <div>Windows game (x86_64 PE, DirectX)</div>
+      <div class="arrow">&darr;</div>
+      <div>Wine &mdash; Win32/PE loader + API emulation (x86_64, under Rosetta&nbsp;2)</div>
+      <div class="arrow">&darr;</div>
+      <div>DXVK &mdash; DirectX 9/10/11 &rarr; Vulkan</div>
+      <div class="arrow">&darr;</div>
+      <div>MoltenVK &mdash; Vulkan &rarr; Metal</div>
+      <div class="arrow">&darr;</div>
+      <div>Metal (GPU)</div>
+    </div>
+  </section>
+
+  <section id="status">
+    <h2>Status</h2>
+    <p>
+      <strong>Milestone:</strong> Hollow Knight: Silksong runs and is
+      playable end to end &mdash; Wine, DXVK, and MoltenVK combine to run
+      a real commercial game on Apple Silicon without Apple's private
+      Game Porting Toolkit engine.
+    </p>
+  </section>
+
+  <section id="links">
+    <h2>Links</h2>
+    <ul class="links">
+      <li><a href="https://github.com/kaangiray26/lithium">GitHub</a></li>
+      <li><a href="https://pypi.org/project/lithium-cli/">PyPI</a></li>
+      <li><a href="https://github.com/kaangiray26/lithium/blob/main/docs/games/README.md">Game compatibility</a></li>
+      <li><a href="https://github.com/kaangiray26/lithium/blob/main/docs/plan.md">Roadmap</a></li>
+    </ul>
+  </section>
+
+</main>
+
+<footer>
+  MIT License &mdash; <a href="https://github.com/kaangiray26/lithium">kaangiray26/lithium</a>
+</footer>
+
+</body>
+</html>

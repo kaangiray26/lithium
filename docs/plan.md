@@ -225,6 +225,66 @@ Rationale, given what's actually available locally (see `docs/resources.md`):
       **Any other 32-bit-only game is a real risk until this is properly
       understood.** Full writeup: `docs/games/batman_arkham_city_goty.md`.
 
+      **Follow-up: researched and tried two more angles, both real leads,
+      neither worked.**
+
+      1. Searched Wine's issue trackers and the wider community for this
+         exact class of bug. Found a closely-related, real report: Wine's
+         newer "new-wow64" architecture (which `wine-11.16` uses) has a
+         separate, documented failure mode under Rosetta -- a
+         `STATUS_ILLEGAL_INSTRUCTION` fault on desktop-window creation --
+         with a known community workaround: launching inside a Wine
+         virtual desktop (`explorer /desktop=name,WxH game.exe`). Tested
+         it for real: it does avoid the CPU-spin hang (`explorer.exe`
+         stays near 0% CPU instead of pegging a core), but tracing with
+         `--debug=+explorer,+winstation,+server` showed a second, distinct
+         problem instead -- explorer's desktop shell fully initializes and
+         reaches its normal idle message loop, but `BatmanAC.exe` itself
+         is never actually spawned (`new_process()` for it never appears
+         in the trace, even after 5+ minutes). So the virtual desktop
+         trades one hang for a silent launch-dispatch failure -- not a
+         fix.
+      2. Checked ProtonDB and the real Proton GitHub issue
+         ([ValveSoftware/Proton#309](https://github.com/ValveSoftware/Proton/issues/309))
+         for this exact game (Steam AppID 200260). Multiple independent
+         Linux users confirm a real, unrelated-to-Rosetta root cause: the
+         game's `.NET 3.5` redistributable silently refuses to install
+         when the Wine prefix reports itself as Windows 7 (`.NET 3.5` is
+         nominally "built into" Windows 7, so the installer no-ops even
+         though Wine doesn't actually provide it) -- confirmed fix on
+         Linux is setting the prefix to Windows XP compatibility mode
+         first. Applied the same fix here (`winetricks winxp`, confirmed
+         via `CurrentVersion=5.2` in `system.reg`), then attempted
+         `winetricks dotnet35` -- and hit two further, genuinely new
+         failures, neither related to the original CPU-spin hang:
+         - **Interactive mode**: the installer reaches a real "Setup"
+           dialog window (confirmed present via `System Events`), but it
+           never renders on screen and doesn't respond to synthetic
+           keystrokes -- consistent with the same underlying
+           window-creation fragility under Rosetta seen in the virtual
+           desktop attempt. Winetricks' own post-install check confirmed
+           nothing was actually installed after 45+ minutes.
+         - **Unattended mode** (`winetricks -q dotnet35`): avoids the
+           stuck dialog (confirmed via `ps`/`System Events` -- installer
+           subprocesses ran with `/q`, no dialog window ever appeared),
+           but instead hit a genuine crash loop: the exact same
+           `Unhandled division by zero at address 000000014000D27C`,
+           repeating on a new thread roughly every few seconds (~975
+           occurrences before it was killed). Also confirmed nothing was
+           actually installed.
+
+      **Net result**: four distinct, real, confirmed-separate blockers
+      stacked on this one game -- the original direct-launch CPU hang, the
+      virtual-desktop launch-dispatch failure, unresponsive/invisible
+      installer dialog windows, and a reproducible divide-by-zero crash
+      loop in unattended mode. All four point at deep Wine/Rosetta
+      interoperability gaps in window creation and/or WoW64 execution,
+      not at anything specific to Lithium's own code. Stopping here --
+      further progress would need real Wine-side debugging (a debug
+      Wine build + a real debugger attached to the crashing/spinning
+      thread) or a different Wine version/build entirely, both
+      substantially bigger undertakings than this pass.
+
 ## Phase 5 — Stabilization & polish (next up)
 
 - [x] Build GStreamer (x86_64, via Homebrew's precompiled bottles in the

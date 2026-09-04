@@ -1,7 +1,7 @@
 # Batman: Arkham City - Game of the Year Edition
 
 - Tested with: v0.1.1
-- Game source: https://www.gog.com/en/game/batman_arkham_city_goty
+- [Game source](https://www.gog.com/en/game/batman_arkham_city_goty)
 
 ## Setup
 

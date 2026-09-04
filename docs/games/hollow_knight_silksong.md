@@ -1,7 +1,7 @@
 # Hollow Knight: Silksong
 
 - Tested with: v0.1.1
-- Game source: https://www.gog.com/en/game/hollow_knight_silksong
+- [Game source](https://www.gog.com/en/game/hollow_knight_silksong)
 
 ## Setup
 

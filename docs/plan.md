@@ -175,6 +175,56 @@ Rationale, given what's actually available locally (see `docs/resources.md`):
 - [x] Reached gameplay (cutscenes + playable) with the user confirming they
       could play. Frame pacing/perf not rigorously measured.
 
+## Phase 4b — Second game: Batman: Arkham City ⚠️ blocked
+
+- [x] Extract the offline GOG installer via `innoextract` (same reasoning
+      as Silksong -- avoids running the installer's own 32-bit stub under
+      Wine). Unlike Silksong, the actual game payload here
+      (`Binaries/Win32/BatmanAC.exe`) is genuinely 32-bit (confirmed via
+      `file`), so it always runs through Wine's WoW64 layer, not just the
+      installer.
+- [x] **Found and fixed a real, previously-latent gap**: `lithium build`
+      only ever built DXVK for win64, and `prefix create` only installed
+      those DLLs into `system32`. A 32-bit game needs DXVK DLLs in
+      `syswow64`, and Lithium's `WINEDLLOVERRIDES=...=n` (native-only, no
+      builtin fallback) makes Wine hard-fail at `d3d9.dll not found`
+      rather than silently falling back to its own (non-DXVK) builtin --
+      confirmed via `WINEDEBUG=+loaddll,+module` tracing, not guessed.
+      Fixed by building a second DXVK (`build-win32.txt`, same pinned/
+      patched source tree as the win64 build -- `DXVK32_MESON_BUILD_DIR`/
+      `DXVK32_BUILD_DIR` in `src/lithium`) and installing those DLLs into
+      `syswow64` on `prefix create`, alongside the existing `system32`
+      copy. `doctor` and `lithium package` both updated to cover the
+      32-bit DLLs too (`dxvk32/` in the packaged archive, plus a matching
+      `LITHIUM_DXVK32_DIR` override for consuming a pre-built archive).
+      Verified for real: rebuilt DXVK32 via `lithium build`, recreated the
+      prefix, confirmed `syswow64/d3d9.dll` became a genuine ~19MB DXVK
+      build (not Wine's ~1.7MB builtin), and the game's DLL-import error
+      was completely gone on the next launch. Added a test
+      (`test_prefix_create_installs_dxvk32_into_syswow64`) -- 51 total,
+      all passing.
+- [ ] **Hit the real, unresolved blocker**: once the DLL is found,
+      `BatmanAC.exe` hangs during startup -- pegs one core at ~98-101% CPU
+      indefinitely. Confirmed via `sample` on the game's PID: nearly the
+      entire stack sits at one hot address inside Rosetta's JIT; `sample`
+      on wineserver's own PID shows it fully idle the whole time -- i.e. a
+      genuine pure userspace spin with zero wineserver calls, not a
+      slow-but-progressing load. This is the *exact same signature* as
+      the already-documented WoW64-on-Rosetta installer hang
+      (`project_lithium_wow64_installer_bug` in memory), except this time
+      triggered by the game's own 32-bit code executing normally, not an
+      InnoSetup installer stub -- a new, more serious finding, since it
+      means the bug isn't limited to installers. Tried
+      `WINE_DISABLE_FAST_SYNCH=1` (directly targeting that writeup's "most
+      likely in Wine's fast-sync futex-style wait path" hypothesis) --
+      made no difference, byte-for-byte identical hang. No window ever
+      appears (checked via `System Events`). Not root-caused further --
+      would need actual Wine-side debugging (attaching a debugger to the
+      spinning thread, or bisecting Wine versions) to pin down the exact
+      syscall/primitive involved, which is out of scope for this pass.
+      **Any other 32-bit-only game is a real risk until this is properly
+      understood.** Full writeup: `docs/games/batman_arkham_city_goty.md`.
+
 ## Phase 5 — Stabilization & polish (next up)
 
 - [x] Build GStreamer (x86_64, via Homebrew's precompiled bottles in the
@@ -813,11 +863,17 @@ Original risks, both confirmed true in practice:
 
 New risk found, not anticipated originally:
 
-- **Wine's WoW64 mode (32-bit guest support) hangs under Rosetta 2** for at
-  least one real-world case (InnoSetup's installer extraction step) — a
-  pure userspace spin, most likely in Wine's futex-style "fast sync" wait
-  path, with no known fix or workaround at the Wine level. Anything that
-  requires running actual 32-bit Windows code (not just 32-bit-stub
-  installers that can be bypassed with a native extractor like
-  `innoextract`) is currently a real risk for future games. Full details:
-  `project_lithium_wow64_installer_bug` in memory.
+- **Wine's WoW64 mode (32-bit guest support) hangs under Rosetta 2** — a
+  pure userspace spin, with no known fix or workaround at the Wine level.
+  Originally found on InnoSetup's installer extraction step (worked around
+  via `innoextract`, bypassing Wine entirely for that step); **confirmed by
+  the Batman: Arkham City test (Phase 4b) that the same hang also hits
+  genuinely 32-bit game code running normally, not just installers** —
+  `WINE_DISABLE_FAST_SYNCH=1` was tried and made no difference, so the
+  "fast sync futex-style wait path" theory is at best incomplete, not a
+  confirmed root cause. **Any game whose actual executable is 32-bit (not
+  just a 32-bit installer stub) is currently a real, unresolved risk** —
+  there is no known workaround once the 32-bit code itself needs to run
+  (unlike the installer case, where the fix was to avoid running the
+  32-bit code at all). Full details: `project_lithium_wow64_installer_bug`
+  in memory, `docs/games/batman_arkham_city_goty.md`.

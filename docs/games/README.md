@@ -19,9 +19,10 @@ limitations.
 
 ## Tested games
 
-| Game                    | Engine | Graphics API     | Status               | Notes                                               |
-| ----------------------- | ------ | ---------------- | -------------------- | --------------------------------------------------- |
-| Hollow Knight: Silksong | Unity  | D3D11 (via DXVK) | Playable with issues | [hollow-knight-silksong](hollow-knight-silksong.md) |
+| Game                                           | Engine          | Graphics API     | Status               | Notes                                                 |
+| ---------------------------------------------- | --------------- | ---------------- | -------------------- | ----------------------------------------------------- |
+| Hollow Knight: Silksong                        | Unity           | D3D11 (via DXVK) | Playable with issues | [hollow_knight_silksong](hollow_knight_silksong.md)   |
+| Batman: Arkham City - Game of the Year Edition | Unreal Engine 3 | D3D9 (via DXVK)  | Not working          | [batman_arkham_city_goty](batman_arkham_city_goty.md) |
 
 ## Adding a new entry
 

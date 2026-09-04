@@ -93,6 +93,16 @@ DXVK_DLLS = [
     ("dxgi", "dxgi.dll"),
 ]
 
+# Separate 32-bit DXVK build (same DXVK_DLLS names, different meson cross
+# file -- build-win32.txt instead of build-win64.txt), copied into the
+# prefix's syswow64 on prefix create. Needed for genuinely 32-bit games
+# (e.g. Batman: Arkham City's Binaries/Win32/BatmanAC.exe) running under
+# Wine's WoW64 mode -- without it, WINEDLLOVERRIDES=...=n (native-only, no
+# builtin fallback) makes those games hard-fail at DLL load with no DXVK
+# DLL to find in syswow64 at all. See docs/plan.md Phase 4 follow-up.
+DXVK32_MESON_BUILD_DIR = LITHIUM_ROOT / "build" / "dxvk32"
+DXVK32_BUILD_DIR = Path(os.environ.get("LITHIUM_DXVK32_DIR", str(DXVK32_MESON_BUILD_DIR / "src")))
+
 MOLTENVK_DYLIB_DIR = Path(
     os.environ.get(
         "LITHIUM_MOLTENVK_DIR",
@@ -457,6 +467,22 @@ def _build_wine() -> None:
     _run(["arch", "-x86_64", "make", f"-j{os.cpu_count()}"], cwd=wine_build_dir, env=env)
 
 
+def _build_dxvk_arch(cross_file: str, meson_build_dir: Path, label: str) -> None:
+    if not (meson_build_dir / "build.ninja").is_file():
+        _log(f"Configuring DXVK ({label}, mingw cross build)...")
+        _run(
+            [
+                "meson", "setup", "--cross-file", str(DXVK_SRC / cross_file),
+                "-Dbuildtype=release", str(meson_build_dir), str(DXVK_SRC),
+            ]
+        )
+    else:
+        _log(f"DXVK ({label}) already configured, skipping configure step.")
+
+    _log(f"Building DXVK ({label})...")
+    _run(["ninja", "-C", str(meson_build_dir)])
+
+
 def _build_dxvk() -> None:
     if not PROTON_SRC.is_dir():
         _log("Cloning Proton (for the dxvk submodule)...")
@@ -470,19 +496,12 @@ def _build_dxvk() -> None:
 
     _apply_patch(DXVK_SRC, DXVK_PATCH)
 
-    if not (DXVK_MESON_BUILD_DIR / "build.ninja").is_file():
-        _log("Configuring DXVK (mingw cross build)...")
-        _run(
-            [
-                "meson", "setup", "--cross-file", str(DXVK_SRC / "build-win64.txt"),
-                "-Dbuildtype=release", str(DXVK_MESON_BUILD_DIR), str(DXVK_SRC),
-            ]
-        )
-    else:
-        _log("DXVK already configured, skipping configure step.")
-
-    _log("Building DXVK...")
-    _run(["ninja", "-C", str(DXVK_MESON_BUILD_DIR)])
+    # Two separate builds from the same (patched) source tree: win64 for
+    # system32 (64-bit games), win32 for syswow64 (32-bit games under
+    # Wine's WoW64 mode -- see DXVK32_BUILD_DIR's comment for why this is
+    # required, not optional).
+    _build_dxvk_arch("build-win64.txt", DXVK_MESON_BUILD_DIR, "win64")
+    _build_dxvk_arch("build-win32.txt", DXVK32_MESON_BUILD_DIR, "win32")
 
 
 @app.command()
@@ -528,13 +547,13 @@ def clean(
 ) -> None:
     """Wipe build output so the next `lithium build` is a real from-scratch rebuild.
 
-    Removes build/wine and build/dxvk. Autotools' Makefile and meson's
-    build.ninja both bake in absolute source paths, so an incremental
-    rebuild after the source tree moves silently breaks -- wiping forces a
-    clean reconfigure. MoltenVK's Package/ output is left alone unless
-    --moltenvk is passed.
+    Removes build/wine, build/dxvk, and build/dxvk32. Autotools' Makefile
+    and meson's build.ninja both bake in absolute source paths, so an
+    incremental rebuild after the source tree moves silently breaks --
+    wiping forces a clean reconfigure. MoltenVK's Package/ output is left
+    alone unless --moltenvk is passed.
     """
-    targets = [WINE_BUILD_DIR, DXVK_MESON_BUILD_DIR]
+    targets = [WINE_BUILD_DIR, DXVK_MESON_BUILD_DIR, DXVK32_MESON_BUILD_DIR]
     if moltenvk:
         targets.append(MOLTENVK_PACKAGE_DIR)
 
@@ -615,6 +634,9 @@ def package() -> None:
         path = DXVK_BUILD_DIR / sub / dll
         if not path.is_file():
             missing.append(f"DXVK {dll} ({path})")
+        path32 = DXVK32_BUILD_DIR / sub / dll
+        if not path32.is_file():
+            missing.append(f"DXVK32 {dll} ({path32})")
     moltenvk_dylib = MOLTENVK_DYLIB_DIR / "libMoltenVK.dylib"
     if not moltenvk_dylib.is_file():
         missing.append(f"MoltenVK dylib ({moltenvk_dylib})")
@@ -646,6 +668,7 @@ def package() -> None:
             tar.add(wine_tree, arcname=f"{base_name}/wine")
             for sub, dll in DXVK_DLLS:
                 tar.add(DXVK_BUILD_DIR / sub / dll, arcname=f"{base_name}/dxvk/{sub}/{dll}")
+                tar.add(DXVK32_BUILD_DIR / sub / dll, arcname=f"{base_name}/dxvk32/{sub}/{dll}")
             tar.add(moltenvk_dylib, arcname=f"{base_name}/moltenvk/libMoltenVK.dylib")
 
     sha256 = _sha256_file(archive_path)
@@ -682,6 +705,12 @@ def doctor() -> None:
         table.add_row(f"DXVK {dll}", status_cell(dll_ok), "" if dll_ok else str(path))
         ok = ok and dll_ok
     table.add_row("DXVK version", "[dim]--[/dim]", _dxvk_version() or "unknown (not built)")
+
+    for sub, dll in DXVK_DLLS:
+        path32 = DXVK32_BUILD_DIR / sub / dll
+        dll32_ok = path32.is_file()
+        table.add_row(f"DXVK32 {dll}", status_cell(dll32_ok), "" if dll32_ok else str(path32))
+        ok = ok and dll32_ok
 
     moltenvk_dylib = MOLTENVK_DYLIB_DIR / "libMoltenVK.dylib"
     moltenvk_ok = moltenvk_dylib.is_file()
@@ -778,6 +807,15 @@ def prefix_create(
     for sub, dll in DXVK_DLLS:
         src = DXVK_BUILD_DIR / sub / dll
         (system32 / dll).write_bytes(src.read_bytes())
+
+    # syswow64 is where 32-bit games look under Wine's WoW64 mode -- without
+    # this, WINEDLLOVERRIDES=...=n (native-only) makes any 32-bit game
+    # hard-fail at DLL load with no DXVK DLL to find there at all.
+    syswow64 = prefix_dir / "drive_c" / "windows" / "syswow64"
+    syswow64.mkdir(parents=True, exist_ok=True)
+    for sub, dll in DXVK_DLLS:
+        src32 = DXVK32_BUILD_DIR / sub / dll
+        (syswow64 / dll).write_bytes(src32.read_bytes())
 
     if verbs:
         typer.echo(f"Installing dependencies via winetricks: {' '.join(verbs)}...")

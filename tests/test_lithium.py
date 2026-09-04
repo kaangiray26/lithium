@@ -25,6 +25,13 @@ def make_executable(path):
     path.chmod(path.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
 
 
+def write_fake_dxvk_dlls(build_dir):
+    for sub, dll in lithium.DXVK_DLLS:
+        dll_path = build_dir / sub / dll
+        dll_path.parent.mkdir(parents=True, exist_ok=True)
+        dll_path.write_bytes(b"fake-dll")
+
+
 # --- pure helpers ---
 
 
@@ -293,6 +300,7 @@ def test_run_helper_non_quiet_is_default(monkeypatch):
 def test_clean_nothing_to_clean(monkeypatch, tmp_path):
     monkeypatch.setattr(lithium, "WINE_BUILD_DIR", tmp_path / "build" / "wine")
     monkeypatch.setattr(lithium, "DXVK_MESON_BUILD_DIR", tmp_path / "build" / "dxvk")
+    monkeypatch.setattr(lithium, "DXVK32_MESON_BUILD_DIR", tmp_path / "build" / "dxvk32")
     result = runner.invoke(lithium.app, ["clean"])
     assert result.exit_code == 0
     assert "Nothing to clean" in result.output
@@ -305,6 +313,7 @@ def test_clean_removes_build_dirs_with_force(monkeypatch, tmp_path):
     (dxvk_build / "src").mkdir(parents=True)
     monkeypatch.setattr(lithium, "WINE_BUILD_DIR", wine_build)
     monkeypatch.setattr(lithium, "DXVK_MESON_BUILD_DIR", dxvk_build)
+    monkeypatch.setattr(lithium, "DXVK32_MESON_BUILD_DIR", tmp_path / "build" / "dxvk32")
 
     result = runner.invoke(lithium.app, ["clean", "--force"])
     assert result.exit_code == 0
@@ -317,6 +326,7 @@ def test_clean_aborts_without_confirmation(monkeypatch, tmp_path):
     wine_build.mkdir(parents=True)
     monkeypatch.setattr(lithium, "WINE_BUILD_DIR", wine_build)
     monkeypatch.setattr(lithium, "DXVK_MESON_BUILD_DIR", tmp_path / "build" / "dxvk")
+    monkeypatch.setattr(lithium, "DXVK32_MESON_BUILD_DIR", tmp_path / "build" / "dxvk32")
 
     result = runner.invoke(lithium.app, ["clean"], input="n\n")
     assert result.exit_code != 0
@@ -328,6 +338,7 @@ def test_clean_moltenvk_flag_includes_package_dir(monkeypatch, tmp_path):
     package_dir.mkdir(parents=True)
     monkeypatch.setattr(lithium, "WINE_BUILD_DIR", tmp_path / "build" / "wine")
     monkeypatch.setattr(lithium, "DXVK_MESON_BUILD_DIR", tmp_path / "build" / "dxvk")
+    monkeypatch.setattr(lithium, "DXVK32_MESON_BUILD_DIR", tmp_path / "build" / "dxvk32")
     monkeypatch.setattr(lithium, "MOLTENVK_PACKAGE_DIR", package_dir)
 
     result = runner.invoke(lithium.app, ["clean", "--moltenvk", "--force"])
@@ -349,11 +360,12 @@ def _setup_packageable_stack(monkeypatch, tmp_path):
     monkeypatch.setattr(lithium, "DIST_DIR", tmp_path / "dist")
 
     dxvk_build_dir = tmp_path / "build" / "dxvk" / "src"
-    for sub, dll in lithium.DXVK_DLLS:
-        dll_path = dxvk_build_dir / sub / dll
-        dll_path.parent.mkdir(parents=True, exist_ok=True)
-        dll_path.write_bytes(b"fake-dll")
+    write_fake_dxvk_dlls(dxvk_build_dir)
     monkeypatch.setattr(lithium, "DXVK_BUILD_DIR", dxvk_build_dir)
+
+    dxvk32_build_dir = tmp_path / "build" / "dxvk32" / "src"
+    write_fake_dxvk_dlls(dxvk32_build_dir)
+    monkeypatch.setattr(lithium, "DXVK32_BUILD_DIR", dxvk32_build_dir)
 
     moltenvk_dir = tmp_path / "external" / "MoltenVK"
     (moltenvk_dir / "libMoltenVK.dylib").parent.mkdir(parents=True, exist_ok=True)
@@ -406,6 +418,7 @@ def test_package_produces_archive_and_checksum(monkeypatch, tmp_path):
         assert f"{base}/moltenvk/libMoltenVK.dylib" in names
         for sub, dll in lithium.DXVK_DLLS:
             assert f"{base}/dxvk/{sub}/{dll}" in names
+            assert f"{base}/dxvk32/{sub}/{dll}" in names
 
         import json
 
@@ -428,11 +441,12 @@ def _setup_ready_stack(monkeypatch, tmp_path):
     monkeypatch.setattr(lithium, "DXVK_MESON_BUILD_DIR", tmp_path / "build" / "dxvk")
 
     dxvk_build_dir = tmp_path / "build" / "dxvk" / "src"
-    for sub, dll in lithium.DXVK_DLLS:
-        dll_path = dxvk_build_dir / sub / dll
-        dll_path.parent.mkdir(parents=True, exist_ok=True)
-        dll_path.write_bytes(b"")
+    write_fake_dxvk_dlls(dxvk_build_dir)
     monkeypatch.setattr(lithium, "DXVK_BUILD_DIR", dxvk_build_dir)
+
+    dxvk32_build_dir = tmp_path / "build" / "dxvk32" / "src"
+    write_fake_dxvk_dlls(dxvk32_build_dir)
+    monkeypatch.setattr(lithium, "DXVK32_BUILD_DIR", dxvk32_build_dir)
 
     moltenvk_dir = tmp_path / "external" / "MoltenVK"
     (moltenvk_dir / "libMoltenVK.dylib").parent.mkdir(parents=True, exist_ok=True)
@@ -610,6 +624,33 @@ def test_prefix_create_fails_if_already_exists(monkeypatch, tmp_path):
     assert "already exists" in result.output
 
 
+def test_prefix_create_installs_dxvk32_into_syswow64(monkeypatch, tmp_path):
+    wine_bin = tmp_path / "wine"
+    make_executable(wine_bin)
+    monkeypatch.setattr(lithium, "WINE_BIN", wine_bin)
+    monkeypatch.setattr(lithium, "PREFIXES_DIR", tmp_path / "prefixes")
+
+    dxvk_build_dir = tmp_path / "dxvk"
+    write_fake_dxvk_dlls(dxvk_build_dir)
+    monkeypatch.setattr(lithium, "DXVK_BUILD_DIR", dxvk_build_dir)
+
+    dxvk32_build_dir = tmp_path / "dxvk32"
+    write_fake_dxvk_dlls(dxvk32_build_dir)
+    monkeypatch.setattr(lithium, "DXVK32_BUILD_DIR", dxvk32_build_dir)
+
+    monkeypatch.setattr(
+        lithium.subprocess, "run", lambda command, env=None: type("Result", (), {"returncode": 0})()
+    )
+
+    result = runner.invoke(lithium.app, ["prefix", "create", "batman"])
+    assert result.exit_code == 0, result.output
+
+    prefix_dir = tmp_path / "prefixes" / "batman"
+    for sub, dll in lithium.DXVK_DLLS:
+        assert (prefix_dir / "drive_c" / "windows" / "system32" / dll).read_bytes() == b"fake-dll"
+        assert (prefix_dir / "drive_c" / "windows" / "syswow64" / dll).read_bytes() == b"fake-dll"
+
+
 def test_prefix_create_with_deps_runs_winetricks(monkeypatch, tmp_path):
     wine_bin = tmp_path / "wine"
     wineserver_bin = tmp_path / "wineserver"
@@ -621,11 +662,12 @@ def test_prefix_create_with_deps_runs_winetricks(monkeypatch, tmp_path):
     monkeypatch.setattr(lithium.shutil, "which", lambda _name: "/usr/local/bin/winetricks")
 
     dxvk_build_dir = tmp_path / "dxvk"
-    for sub, dll in lithium.DXVK_DLLS:
-        p = dxvk_build_dir / sub / dll
-        p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_bytes(b"")
+    write_fake_dxvk_dlls(dxvk_build_dir)
     monkeypatch.setattr(lithium, "DXVK_BUILD_DIR", dxvk_build_dir)
+
+    dxvk32_build_dir = tmp_path / "dxvk32"
+    write_fake_dxvk_dlls(dxvk32_build_dir)
+    monkeypatch.setattr(lithium, "DXVK32_BUILD_DIR", dxvk32_build_dir)
 
     calls = []
 
